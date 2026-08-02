@@ -12,10 +12,10 @@
 
 - Previous production source commit: `c84cd94` (`Stabilize construction support and settlement cadence`)
 - Previous production deployment: `dpl_6yBVNYiNx4C7CUZZLdWvMkEtQMye` — READY
-- Current production source: `3abcf4d` (`fix: add mobile HUD breathing room`), merged through public PRs [#1](https://github.com/JaronKBragg7337/wasteland-commons/pull/1), [#2](https://github.com/JaronKBragg7337/wasteland-commons/pull/2), [#3](https://github.com/JaronKBragg7337/wasteland-commons/pull/3), and [#4](https://github.com/JaronKBragg7337/wasteland-commons/pull/4), CI green
-- Current production deployment: `dpl_DZyqY9aDwAXkyC9bP6N2tZ3xD44d` — READY, aliased to `https://wasteland-commons.vercel.app`
+- Current production source: `b40915b` (`fix: honor mobile resume grace period`), merged through public PRs [#1](https://github.com/JaronKBragg7337/wasteland-commons/pull/1), [#2](https://github.com/JaronKBragg7337/wasteland-commons/pull/2), [#3](https://github.com/JaronKBragg7337/wasteland-commons/pull/3), [#4](https://github.com/JaronKBragg7337/wasteland-commons/pull/4), and [#6](https://github.com/JaronKBragg7337/wasteland-commons/pull/6), CI green
+- Current production deployment: `dpl_H45cRYBajsUhYqrbfr6EVDeczf3b` — READY, aliased to `https://wasteland-commons.vercel.app`
 - Manifest hash: `2332c91ca27b9abe625edce1a289a1f2d6ec9cfdd9435b9ecefa3200b57dda64`
-- Browser verification rerun: desktop, 390×844 iPhone-sized, and 412×915 Android-sized viewports; construction remained `VALIDATED` after the authoritative round trip, and the mobile HUD/inspection hint no longer overlaps the action controls.
+- Browser verification rerun: desktop, 390×844 iPhone-sized, and 412×915 Android-sized viewports; construction remained `VALIDATED` after the authoritative round trip, the mobile HUD/inspection hint no longer overlaps the action controls, and the production relay now honors the two-minute resume grace contract.
 
 ## What was verified
 
