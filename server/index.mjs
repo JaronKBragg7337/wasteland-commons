@@ -14,6 +14,9 @@ let world = createWorld({
 });
 const connections = new Map();
 const persistence = createSupabaseStore({ worldId: 'saltglass-basin' });
+let pendingPersistenceEvents = [];
+let lastQueuedPersistenceRevision = 0;
+let persistenceTail = Promise.resolve();
 const palette = ['#7be6d0', '#ffbd69', '#c99cff', '#ff8f83'];
 const server = createServer((request, response) => {
   if (request.url === '/health' || request.url === '/') {
@@ -60,10 +63,26 @@ function broadcast(message) {
   for (const { socket } of connections.values()) if (socket.readyState === 1) socket.send(payload);
 }
 
-function broadcastSnapshot() {
-  const currentSnapshot = snapshot();
+function broadcastSnapshot(currentSnapshot = snapshot()) {
   broadcast({ type: 'snapshot', snapshot: currentSnapshot });
   broadcast({ type: 'players', players: clientPlayers(currentSnapshot) });
+}
+
+function queuePersistence(currentSnapshot) {
+  if (!persistence.enabled || currentSnapshot.revision <= lastQueuedPersistenceRevision) return;
+  const snapshotToPersist = structuredClone(currentSnapshot);
+  const eventsToPersist = pendingPersistenceEvents.slice();
+  lastQueuedPersistenceRevision = snapshotToPersist.revision;
+  persistenceTail = persistenceTail.then(async () => {
+    try {
+      const result = await persistence.persist(snapshotToPersist, { events: eventsToPersist });
+      if (!result.persisted) return;
+      pendingPersistenceEvents.splice(0, eventsToPersist.length);
+    } catch (error) {
+      lastQueuedPersistenceRevision = 0;
+      console.error(`Supabase persistence failed: ${error.message}`);
+    }
+  });
 }
 
 function enqueue(command) {
@@ -74,10 +93,7 @@ function commandIdFor(message, prefix) {
   return String(message.commandId ?? `${prefix}-${randomUUID()}`);
 }
 
-const persistedSnapshot = persistence.enabled ? await persistence.load().catch((error) => {
-  console.error(`Supabase load skipped: ${error.message}`);
-  return null;
-}) : null;
+const persistedSnapshot = persistence.enabled ? await persistence.load() : null;
 if (persistedSnapshot) {
   world = restoreWorld(persistedSnapshot, { rules: { playerSpeed: 7, sprintSpeed: 10 } });
   console.log(`Restored Saltglass Basin at revision ${world.snapshot().revision}`);
@@ -89,10 +105,10 @@ if (persistedSnapshot) {
 
 const simulationTimer = setInterval(() => {
   world.step();
-  broadcastSnapshot();
-  if (persistence.enabled && world.snapshot().tick % 100 === 0) {
-    persistence.persist(world.snapshot()).catch((error) => console.error(error.message));
-  }
+  const currentSnapshot = snapshot();
+  if (persistence.enabled) pendingPersistenceEvents.push(...currentSnapshot.events);
+  broadcastSnapshot(currentSnapshot);
+  if (currentSnapshot.tick % 100 === 0) queuePersistence(currentSnapshot);
 }, 1000 / 20);
 simulationTimer.unref();
 

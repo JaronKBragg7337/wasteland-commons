@@ -19,6 +19,7 @@ jobs:
       - run: npm ci
       - run: npm run test:world
       - run: npm run test:authoritative
+      - run: npm run test:persistence
       - run: npm run audit:materials -- --strict
       - run: npm run build
       - run: npm ci --prefix mobile/capacitor

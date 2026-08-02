@@ -9,18 +9,18 @@ function endpoint(table) {
   return `${process.env.SUPABASE_URL.replace(/\/$/, '')}/rest/v1/${table}`;
 }
 
-function headers() {
+function headers(prefer = 'resolution=merge-duplicates,return=minimal') {
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   return {
     apikey: key,
     Authorization: `Bearer ${key}`,
     'content-type': 'application/json',
-    Prefer: 'resolution=merge-duplicates,return=minimal',
+    Prefer: prefer,
   };
 }
 
-async function post(table, body, search = '') {
-  const response = await fetch(`${endpoint(table)}${search}`, { method: 'POST', headers: headers(), body: JSON.stringify(body) });
+async function post(table, body, search = '', prefer) {
+  const response = await fetch(`${endpoint(table)}${search}`, { method: 'POST', headers: headers(prefer), body: JSON.stringify(body) });
   if (!response.ok) throw new Error(`Supabase ${table} write failed (${response.status})`);
 }
 
@@ -40,7 +40,7 @@ export function createSupabaseStore({ worldId } = {}) {
       const rows = await get(SNAPSHOT_TABLE, `?world_id=eq.${encodeURIComponent(id)}&select=state&limit=1`);
       return rows?.[0]?.state ?? null;
     },
-    async persist(snapshot) {
+    async persist(snapshot, { events = snapshot.events ?? [] } = {}) {
       if (!configured()) return { persisted: false, reason: 'not-configured' };
       await post(SNAPSHOT_TABLE, {
         world_id: id,
@@ -49,15 +49,23 @@ export function createSupabaseStore({ worldId } = {}) {
         state: snapshot,
         revision: snapshot.revision,
       }, '?on_conflict=world_id');
-      for (const event of snapshot.events ?? []) {
+
+      const uniqueEvents = new Map();
+      for (const [index, event] of events.entries()) {
+        const eventId = String(event?.eventId ?? `${event?.tick ?? snapshot.tick}:event-${index + 1}`).trim();
+        if (!eventId) continue;
+        uniqueEvents.set(eventId, { event, eventId });
+      }
+      for (const { event, eventId } of uniqueEvents.values()) {
         await post(EVENT_TABLE, {
           world_id: id,
+          event_id: eventId,
           tick: event.tick ?? snapshot.tick,
           event_type: event.type ?? 'unknown',
           payload: event,
-        });
+        }, '?on_conflict=world_id,event_id', 'resolution=ignore-duplicates,return=minimal');
       }
-      return { persisted: true, revision: snapshot.revision };
+      return { persisted: true, revision: snapshot.revision, events: uniqueEvents.size };
     },
   };
 }

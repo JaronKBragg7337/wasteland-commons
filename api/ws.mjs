@@ -9,9 +9,12 @@ import { createSupabaseStore } from '../server/persistence/supabase-store.mjs';
 const persistence = createSupabaseStore({ worldId: 'saltglass-basin' });
 let world = createWorld({ worldId: 'saltglass-basin', worldSeed: 'saltglass-commons-001', rules: { playerSpeed: 7, sprintSpeed: 10 } });
 const connections = new Map();
+let pendingPersistenceEvents = [];
+let lastQueuedPersistenceRevision = 0;
+let persistenceTail = Promise.resolve();
 const palette = ['#7be6d0', '#ffbd69', '#c99cff', '#ff8f83'];
 
-const persistedSnapshot = persistence.enabled ? await persistence.load().catch(() => null) : null;
+const persistedSnapshot = persistence.enabled ? await persistence.load() : null;
 if (persistedSnapshot) {
   world = restoreWorld(persistedSnapshot, { rules: { playerSpeed: 7, sprintSpeed: 10 } });
 } else {
@@ -41,17 +44,35 @@ function broadcast(message) {
   const payload = JSON.stringify(message);
   for (const { socket } of connections.values()) if (socket.readyState === 1) socket.send(payload);
 }
-function broadcastSnapshot() {
-  const current = snapshot();
+function broadcastSnapshot(current = snapshot()) {
   broadcast({ type: 'snapshot', snapshot: current });
   broadcast({ type: 'players', players: clientPlayers(current) });
 }
 function commandIdFor(message, prefix) { return String(message.commandId ?? `${prefix}-${randomUUID()}`); }
 
+function queuePersistence(currentSnapshot) {
+  if (!persistence.enabled || currentSnapshot.revision <= lastQueuedPersistenceRevision) return;
+  const snapshotToPersist = structuredClone(currentSnapshot);
+  const eventsToPersist = pendingPersistenceEvents.slice();
+  lastQueuedPersistenceRevision = snapshotToPersist.revision;
+  persistenceTail = persistenceTail.then(async () => {
+    try {
+      const result = await persistence.persist(snapshotToPersist, { events: eventsToPersist });
+      if (!result.persisted) return;
+      pendingPersistenceEvents.splice(0, eventsToPersist.length);
+    } catch (error) {
+      lastQueuedPersistenceRevision = 0;
+      console.error(`Supabase persistence failed: ${error.message}`);
+    }
+  });
+}
+
 const simulationTimer = setInterval(() => {
   world.step();
-  broadcastSnapshot();
-  if (persistence.enabled && world.snapshot().tick % 100 === 0) persistence.persist(world.snapshot()).catch(() => {});
+  const current = snapshot();
+  if (persistence.enabled) pendingPersistenceEvents.push(...current.events);
+  broadcastSnapshot(current);
+  if (current.tick % 100 === 0) queuePersistence(current);
 }, 1000 / 20);
 simulationTimer.unref?.();
 
