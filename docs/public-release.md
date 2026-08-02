@@ -14,7 +14,9 @@
 - The local authoritative relay passed the two-client protocol test, including shared player state and construction replication.
 - A fresh production two-client WebSocket audit completed both handshakes, but the clients received isolated player lists because Vercel function instances do not share the in-memory world. Public shared multiplayer is therefore not marked passed.
 - Local desktop, 390×844 iPhone-sized, and 412×915 Android-sized layouts were inspected.
+- Fresh public visual inspection passed at the default desktop viewport and 390×844 phone viewport: `CONNECTED`, `BEAUTY`, `VALIDATED`, responsive controls, and no visible layout overflow.
 - Inspection mode exposed the grid and stable asset labels.
+- Public Inspection mode and the Build action completed with visible status feedback before returning to Beauty mode.
 - A construction command replicated between two clients on the local authoritative relay.
 - The authority protocol test piloted the seeded modular mech at its exact grid position, verified module loadout, and confirmed player/mech attachment.
 - The authority regression suite verified that player input drives the boarded vehicle only for its driver.
