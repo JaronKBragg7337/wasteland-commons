@@ -10,6 +10,32 @@ const targets = [
   path.join(root, 'mobile', 'capacitor', 'android', 'app', 'src', 'main', 'assets', 'public'),
   path.join(root, 'mobile', 'capacitor', 'ios', 'App', 'App', 'public'),
 ];
+const nativeConfig = {
+  appId: 'com.wastelandcommons.game',
+  appName: 'Wasteland Commons',
+  webDir: '../../dist',
+  loggingBehavior: 'none',
+  initialFocus: true,
+  zoomEnabled: false,
+  backgroundColor: '#090b10',
+  server: {
+    hostname: 'localhost',
+    iosScheme: 'capacitor',
+    androidScheme: 'https',
+  },
+  ios: {
+    loggingBehavior: 'none',
+    webContentsDebuggingEnabled: false,
+    preferredContentMode: 'mobile',
+    scrollEnabled: false,
+    contentInset: 'never',
+  },
+  android: {
+    loggingBehavior: 'none',
+    webContentsDebuggingEnabled: false,
+    allowMixedContent: false,
+  },
+};
 
 if (!fs.existsSync(path.join(dist, 'index.html'))) {
   console.error('Mobile web copy failed: dist/index.html is missing; run npm run build:web first.');
@@ -27,6 +53,7 @@ if (!javascriptFiles.some((filePath) => fs.readFileSync(filePath, 'utf8').includ
 for (const target of targets) {
   fs.mkdirSync(target, { recursive: true });
   fs.cpSync(dist, target, { recursive: true, force: true });
+  fs.writeFileSync(path.join(path.dirname(target), 'capacitor.config.json'), `${JSON.stringify(nativeConfig, null, 2)}\n`);
 }
 
 const indexHash = crypto.createHash('sha256').update(fs.readFileSync(path.join(dist, 'index.html'))).digest('hex');
