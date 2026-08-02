@@ -76,6 +76,53 @@ test('entities, vehicle authority, construction, and NPC production are authorit
   assert.equal(world.snapshot().settlement.resources.food, 23);
 });
 
+test('player construction is range-gated while trusted world commands remain valid', () => {
+  const world = createWorld();
+  send(world, { type: 'player.join', playerId: 'builder-player', position: { x: 0, y: 0.9, z: 0 } });
+
+  const trusted = world.enqueue({
+    type: 'construction.place', constructionId: 'trusted-wall', blueprint: 'wall',
+    position: { x: 20, y: 0, z: 20 }
+  });
+  assert.equal(trusted.accepted, true);
+  world.step();
+
+  const farPlayerRequest = world.enqueue({
+    type: 'construction.place', commandId: 'far-build', playerId: 'builder-player',
+    constructionId: 'far-wall', blueprint: 'wall', position: { x: 40, y: 0, z: 40 }
+  });
+  assert.equal(farPlayerRequest.accepted, true);
+  world.step();
+  assert.equal(world.snapshot().constructions.some((construction) => construction.id === 'far-wall'), false);
+  assert.equal(world.snapshot().events.at(-1).reason, 'construction site is out of reach');
+
+  const nearPlayerRequest = world.enqueue({
+    type: 'construction.place', commandId: 'near-build', playerId: 'builder-player',
+    constructionId: 'near-wall', blueprint: 'wall', position: { x: 4, y: 0, z: 4 }
+  });
+  assert.equal(nearPlayerRequest.accepted, true);
+  world.step();
+  assert.equal(world.snapshot().constructions.some((construction) => construction.id === 'near-wall'), true);
+});
+
+test('temporary disconnect and resume preserve the anonymous player identity', () => {
+  const world = createWorld();
+  send(world, { type: 'player.join', playerId: 'resume-player', name: 'Rook', position: { x: 0, y: 0.9, z: 0 } });
+  world.step();
+  send(world, { type: 'player.move', playerId: 'resume-player', direction: { x: 1, z: 0 } });
+  world.step(4);
+  const before = world.snapshot().players.find((player) => player.id === 'resume-player');
+  send(world, { type: 'player.disconnect', commandId: 'disconnect-resume-player', playerId: 'resume-player' });
+  world.step();
+  assert.equal(world.snapshot().players.find((player) => player.id === 'resume-player').status, 'offline');
+  send(world, { type: 'player.resume', commandId: 'resume-resume-player', playerId: 'resume-player', name: 'Rook' });
+  world.step();
+  const after = world.snapshot().players.find((player) => player.id === 'resume-player');
+  assert.equal(after.id, before.id);
+  assert.deepEqual(after.position, before.position);
+  assert.equal(after.status, 'active');
+});
+
 test('NPC production uses a deliberate settlement cadence instead of draining each second', () => {
   const world = createWorld();
   send(world, { type: 'npc.spawn', npcId: 'grower-1', role: 'grower' });

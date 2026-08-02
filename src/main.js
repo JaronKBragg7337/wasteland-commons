@@ -54,17 +54,20 @@ scene.add(sun);
 const worldRoot = new THREE.Group();
 const objectRoot = new THREE.Group();
 const playerRoot = new THREE.Group();
+const npcRoot = new THREE.Group();
 const inspectionRoot = new THREE.Group();
 const selectionRoot = new THREE.Group();
 const collisionRoot = new THREE.Group();
 inspectionRoot.add(collisionRoot);
-scene.add(worldRoot, objectRoot, playerRoot, inspectionRoot, selectionRoot);
+scene.add(worldRoot, objectRoot, playerRoot, npcRoot, inspectionRoot, selectionRoot);
 
 const records = new Map(manifest.records.map((record) => [record.id, record]));
 const meshes = new Map();
 const labels = new Map();
 const collisionProxies = new Map();
 const landmarkTreatments = new Map();
+const networkEntities = new Map();
+const npcVisuals = new Map();
 const sectorLabels = [];
 const basePositions = new Map(manifest.records.map((record) => [record.id, { ...record.position }]));
 const players = new Map();
@@ -84,9 +87,12 @@ const worldState = {
   food: 64,
   morale: 58,
   relayPower: 0,
+  power: 65,
+  npcCount: 0,
   mechModules: ['salvage arm', 'arc shield', 'rail driver'],
   mechModuleIndex: 0,
   nextBuildId: 1,
+  pendingCommands: new Map(),
   elapsed: 0,
   lastSnapshotRevision: -1,
   lastEventId: ''
@@ -109,6 +115,7 @@ let lastReadoutSignature = '';
 let lastWorldAddress = '';
 let connectionState = 'offline';
 let touchVector = { x: 0, y: 0 };
+let touchSprinting = false;
 const keys = new Set();
 
 const HUD_WRITE_INTERVAL_MS = 250;
@@ -116,6 +123,7 @@ const RECONNECT_BACKOFF_MS = [1000, 2000, 4000, 8000, 15000, 30000];
 const RECONCILIATION_DEAD_ZONE = 0.35;
 const RECONCILIATION_HARD_SNAP_DISTANCE = 3.5;
 const RECONCILIATION_MAX_CORRECTION_SPEED = 8;
+const RESUME_STORAGE_KEY = 'wasteland-commons:anonymous-resume-v1';
 const ui = {
   connection: document.querySelector('#connection'),
   connectButton: document.querySelector('#connect-button'),
@@ -123,11 +131,15 @@ const ui = {
   water: document.querySelector('#water-readout'),
   food: document.querySelector('#food-readout'),
   morale: document.querySelector('#morale-readout'),
+  power: document.querySelector('#power-readout'),
+  npcs: document.querySelector('#npc-readout'),
+  revision: document.querySelector('#revision-readout'),
   mech: document.querySelector('#mech-readout'),
   world: document.querySelector('#world-readout'),
   sector: document.querySelector('#sector-readout'),
   route: document.querySelector('#route-readout'),
-  event: document.querySelector('#event-readout')
+  event: document.querySelector('#event-readout'),
+  objective: document.querySelector('#objective')
 };
 
 const colors = {
@@ -574,11 +586,83 @@ function createPlayerMesh(color) {
   return group;
 }
 
+const npcRoleColors = {
+  grower: '#9ed27b',
+  scavenger: '#e2ae70',
+  mechanic: '#7bc7e6',
+  medic: '#f19c9c',
+  builder: '#d4b77a',
+  guard: '#c99cff'
+};
+
+function createNpcMesh(npc) {
+  const color = npcRoleColors[npc.role] ?? '#b6c7c2';
+  const group = new THREE.Group();
+  group.name = npc.id;
+  group.userData.npcId = npc.id;
+  const body = new THREE.Mesh(
+    new THREE.CapsuleGeometry(0.34, 0.78, 4, 8),
+    new THREE.MeshStandardMaterial({ color, roughness: 0.72, metalness: 0.08 })
+  );
+  body.position.y = 0.52;
+  body.castShadow = true;
+  const head = new THREE.Mesh(
+    new THREE.SphereGeometry(0.28, 12, 8),
+    new THREE.MeshStandardMaterial({ color: '#d1a884', roughness: 0.85 })
+  );
+  head.position.y = 1.35;
+  head.castShadow = true;
+  const roleMarker = new THREE.Mesh(
+    new THREE.BoxGeometry(0.12, 0.36, 0.12),
+    new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.35 })
+  );
+  roleMarker.position.set(0.48, 0.7, 0);
+  roleMarker.castShadow = true;
+  group.add(body, head, roleMarker);
+  npcRoot.add(group);
+  const label = makeLabel(`${npc.id} · ${String(npc.role ?? 'worker').toUpperCase()}`, color, 0.52);
+  inspectionRoot.add(label);
+  return { mesh: group, label };
+}
+
+function syncNpcCollection(npcs = []) {
+  const incoming = new Set();
+  let activeCount = 0;
+  for (const npc of npcs) {
+    if (!npc?.id || !npc.position) continue;
+    incoming.add(npc.id);
+    networkEntities.set(npc.id, npc);
+    let visual = npcVisuals.get(npc.id);
+    if (!visual) {
+      visual = createNpcMesh(npc);
+      npcVisuals.set(npc.id, visual);
+    }
+    const position = npc.position;
+    visual.mesh.position.set(position.x, position.y, position.z);
+    visual.mesh.visible = !['dead', 'injured', 'unavailable'].includes(npc.status);
+    visual.label.position.set(position.x, position.y + 2.2, position.z);
+    visual.label.visible = inspection && visual.mesh.visible;
+    updateLabel(visual.label, `${npc.id} · ${String(npc.role ?? 'worker').toUpperCase()}`);
+    if (npc.status === 'working' || npc.status === 'resting' || npc.status === 'traveling') activeCount += 1;
+  }
+  for (const [id, visual] of npcVisuals) {
+    if (incoming.has(id)) continue;
+    visual.mesh.visible = false;
+    visual.label.visible = false;
+  }
+  worldState.npcCount = activeCount;
+  setText(ui.npcs, `${activeCount} ACTIVE`);
+}
+
 function setPlayerMesh(id, player) {
   if (!players.has(id)) players.set(id, { ...player, mesh: createPlayerMesh(player.color) });
   const entry = players.get(id);
+  entry.status = player.status ?? 'active';
+  entry.health = player.health;
+  entry.maxHealth = player.maxHealth;
   entry.position = player.position;
   entry.mesh.position.set(player.position.x, player.position.y, player.position.z);
+  entry.mesh.visible = entry.status === 'active';
   if (!entry.mesh.parent) playerRoot.add(entry.mesh);
 }
 
@@ -591,7 +675,7 @@ function syncLocalPlayerMesh() {
       z: localPlayer.position.z
     };
     local.mesh.position.copy(localPlayer.position);
-    local.mesh.visible = !localPlayer.mechId;
+    local.mesh.visible = local.status === 'active' && !localPlayer.mechId;
     return;
   }
   setPlayerMesh(localPlayer.id, {
@@ -654,6 +738,28 @@ function setPlayerCount(count) {
   setText(ui.playerCount, String(count));
 }
 
+function stateForRecord(record) {
+  if (!record) return null;
+  return networkEntities.get(record.id) ?? null;
+}
+
+function refreshSelectedReadout() {
+  if (!selectedId) return;
+  const record = records.get(selectedId);
+  if (!record) return;
+  const state = stateForRecord(record);
+  const status = state?.status ?? (record.category === 'structure' || record.category === 'landmark' ? 'STATIC' : 'READY');
+  const health = Number.isFinite(Number(state?.health))
+    ? `${Math.max(0, Math.round(Number(state.health)))}/${Math.max(1, Math.round(Number(state.maxHealth ?? state.health)))}`
+    : state?.progress !== undefined
+      ? `${Math.round((Number(state.progress) / Math.max(1, Number(state.buildTicks ?? state.progress))) * 100)}%`
+      : '—';
+  setText(document.querySelector('#selected-status'), String(status).toUpperCase());
+  setText(document.querySelector('#selected-health'), health);
+  setText(document.querySelector('#selected-grid'), addressFor(record.position));
+  setText(document.querySelector('#selected-sector'), sectorFor(record.position).id);
+}
+
 function updateSelection(record) {
   selectedId = record?.id ?? null;
   updateSelectionVisual(record);
@@ -670,6 +776,7 @@ function updateSelection(record) {
   document.querySelector('#selected-sector').textContent = sectorFor(record.position).id;
   document.querySelector('#selected-material').textContent = record.materialKey;
   card.setAttribute('aria-label', `Selected ${record.name}, ${addressFor(record.position)}`);
+  refreshSelectedReadout();
 }
 
 function updateReadouts(force = false, now = performance.now()) {
@@ -679,7 +786,10 @@ function updateReadouts(force = false, now = performance.now()) {
     `${Math.round(worldState.water)}%`,
     `${Math.round(worldState.food)}%`,
     `${Math.round(worldState.morale)}%`,
-    worldState.mechModules[worldState.mechModuleIndex].toUpperCase()
+    worldState.mechModules[worldState.mechModuleIndex].toUpperCase(),
+    String(Math.round(worldState.power)),
+    `${worldState.npcCount} ACTIVE`,
+    worldState.lastSnapshotRevision >= 0 ? String(worldState.lastSnapshotRevision) : 'LOCAL'
   ];
   const signature = values.join('|');
   if (!force && signature === lastReadoutSignature) return;
@@ -688,6 +798,9 @@ function updateReadouts(force = false, now = performance.now()) {
   setText(ui.food, values[1]);
   setText(ui.morale, values[2]);
   setText(ui.mech, values[3]);
+  setText(ui.power, values[4]);
+  setText(ui.npcs, values[5]);
+  setText(ui.revision, values[6]);
 }
 
 function updateWorldReadout(force = false) {
@@ -702,6 +815,29 @@ function updateWorldReadout(force = false) {
 function announce(message) {
   setText(ui.event, message);
   showToast(message);
+}
+
+function relayIsOnline(snapshot) {
+  return snapshot?.settlement?.systems?.signal === true;
+}
+
+function updateObjectiveFromSnapshot(snapshot) {
+  if (!ui.objective || !snapshot?.settlement) return;
+  ui.objective.textContent = relayIsOnline(snapshot)
+    ? 'The relay is online. Keep the commons supplied and defend the basin.'
+    : 'Find the old relay station and bring the commons back online.';
+  worldState.relayPower = relayIsOnline(snapshot) ? 100 : 0;
+}
+
+function sendAuthoritativeCommand(message, pendingMessage = 'Command queued for the world relay.') {
+  if (!socket || socket.readyState !== WebSocket.OPEN) {
+    announce('The world relay is offline. Reconnect before changing the commons.');
+    return false;
+  }
+  if (message?.commandId) worldState.pendingCommands.set(String(message.commandId), pendingMessage);
+  socket.send(JSON.stringify(message));
+  announce(pendingMessage);
+  return true;
 }
 
 function nearestRecord(maxDistance = 7) {
@@ -754,16 +890,20 @@ function attackTarget() {
     return;
   }
   updateSelection(target);
-  if (target.category === 'boss' && socket?.readyState === WebSocket.OPEN) {
-    const bossKey = target.id.includes('RELAY') ? 'relay-warden' : 'foundry-giant';
-    socket.send(JSON.stringify({ type: 'command', command: 'boss.start', commandId: createCommandId('boss'), bossId: target.id, bossKey, position: target.position }));
+  if (!socket || socket.readyState !== WebSocket.OPEN) {
+    announce('The world relay is offline. Reconnect before engaging a target.');
+    return;
   }
-  if (localPlayer.mechId && socket?.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify({
+  if (target.category === 'boss') {
+    const bossKey = target.id.includes('RELAY') ? 'relay-warden' : 'foundry-giant';
+    sendAuthoritativeCommand({ type: 'command', command: 'boss.start', commandId: createCommandId('boss'), bossId: target.id, bossKey, position: target.position }, `Preparing the ${target.name} encounter.`);
+    return;
+  }
+  if (localPlayer.mechId) {
+    sendAuthoritativeCommand({
       type: 'command', command: 'mech.activate', commandId: createCommandId('mech-attack'),
       mechId: localPlayer.mechId, action: 'attack', targetId: target.id
-    }));
-    announce(`Mech weapon fired at ${target.name} from ${addressFor(target.position)}.`);
+    }, `Mech weapon queued against ${target.name} at ${addressFor(target.position)}.`);
     return;
   }
   const idempotencyKey = createCommandId('attack');
@@ -775,8 +915,7 @@ function attackTarget() {
     targetCategory: target.category,
     targetGrid: addressFor(target.position)
   };
-  if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(command));
-  announce(`Engaging ${target.name} at ${addressFor(target.position)}.`);
+  sendAuthoritativeCommand(command, `Engaging ${target.name} at ${addressFor(target.position)}.`);
 }
 
 function interact() {
@@ -786,59 +925,35 @@ function interact() {
     return;
   }
   updateSelection(record);
-  if (record.id === 'RELAY-TOWER-0001') {
-    worldState.relayPower = Math.min(100, worldState.relayPower + 25);
-    worldState.morale = Math.min(100, worldState.morale + 5);
-    document.querySelector('#objective').textContent = worldState.relayPower >= 100
-      ? 'The relay is online. Keep the commons supplied and defend the basin.'
-      : `Restore the relay station: ${worldState.relayPower}% power.`;
-    announce(`Relay station charged to ${worldState.relayPower}%.`);
-  } else if (record.category === 'robot' && isCombatTarget(record)) {
+  if (record.category === 'robot' && isCombatTarget(record)) {
     attackTarget();
   } else if (record.category === 'robot') {
-    const helpful = record.semanticType === 'friendly-robot';
-    worldState.morale = Math.min(100, worldState.morale + (helpful ? 7 : -4));
-    worldState.food = Math.min(100, worldState.food + (helpful ? 3 : 0));
-    announce(helpful ? `${record.name} accepted a work order and joined the commons.` : `${record.name} marked you as a threat; keep your distance.`);
+    sendAuthoritativeCommand({ type: 'command', command: 'interact', commandId: createCommandId('interact'), recordId: record.id }, `Requesting a work order from ${record.name}.`);
   } else if (record.category === 'creature') {
     attackTarget();
   } else if (record.category === 'vehicle') {
     if (localPlayer.vehicleId === record.id) {
-      socket?.send(JSON.stringify({ type: 'command', command: 'exitVehicle', commandId: createCommandId('exit'), vehicleId: record.id }));
-      announce(`Exited ${record.name}.`);
-    } else if (socket?.readyState === WebSocket.OPEN) {
-      socket.send(JSON.stringify({ type: 'command', command: 'enterVehicle', commandId: createCommandId('enter'), vehicleId: record.id }));
-      announce(`Boarding ${record.name}.`);
+      sendAuthoritativeCommand({ type: 'command', command: 'exitVehicle', commandId: createCommandId('exit'), vehicleId: record.id }, `Exiting ${record.name}.`);
     } else {
-      announce(`${record.name} is ready for a driver after reconnect.`);
+      sendAuthoritativeCommand({ type: 'command', command: 'enterVehicle', commandId: createCommandId('enter'), vehicleId: record.id }, `Boarding ${record.name}.`);
     }
   } else if (record.category === 'mech') {
     cycleMech(record);
   } else if (record.category === 'boss') {
-    worldState.morale = Math.max(0, worldState.morale - 3);
-    announce(`${record.name} detected. Engage when the team is ready.`);
-    if (socket?.readyState === WebSocket.OPEN) {
-      const bossKey = record.id.includes('RELAY') ? 'relay-warden' : 'foundry-giant';
-      socket.send(JSON.stringify({ type: 'command', command: 'boss.start', commandId: createCommandId('boss'), bossId: record.id, bossKey, position: record.position }));
-    }
-  } else if (record.semanticType === 'water-cistern') {
-    worldState.water = Math.min(100, worldState.water + 12);
-    announce(`Cistern recovered. Water reserves are now ${Math.round(worldState.water)}%.`);
-  } else if (record.semanticType === 'food-garden') {
-    worldState.food = Math.min(100, worldState.food + 10);
-    worldState.morale = Math.min(100, worldState.morale + 2);
-    announce(`Grow beds tended. Food reserves are now ${Math.round(worldState.food)}%.`);
+    const bossKey = record.id.includes('RELAY') ? 'relay-warden' : 'foundry-giant';
+    sendAuthoritativeCommand({ type: 'command', command: 'boss.start', commandId: createCommandId('boss'), bossId: record.id, bossKey, position: record.position }, `${record.name} detected. Preparing the encounter.`);
   } else if (record.semanticType === 'mech-bay') {
     cycleMech();
-    announce(`Mech bay ready. Equipped ${worldState.mechModules[worldState.mechModuleIndex]}.`);
   } else {
-    announce(`${record.name} is recorded at ${addressFor(record.position)}.`);
+    sendAuthoritativeCommand({ type: 'command', command: 'interact', commandId: createCommandId('interact'), recordId: record.id }, `Interacting with ${record.name} at ${addressFor(record.position)}.`);
   }
-  updateReadouts(true);
-  if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'command', command: 'interact', commandId: createCommandId('interact'), recordId: record.id }));
 }
 
 function buildCommunityModule() {
+  if (!socket || socket.readyState !== WebSocket.OPEN) {
+    announce('The world relay is offline. Reconnect before building in the commons.');
+    return;
+  }
   const column = Math.floor((localPlayer.position.x - grid.origin.x) / grid.cellSize);
   const row = Math.floor((localPlayer.position.z - grid.origin.z) / grid.cellSize);
   const position = {
@@ -860,13 +975,7 @@ function buildCommunityModule() {
     solid: true,
     materialParts: ['survivorCloth', 'weatheredConcrete']
   };
-  records.set(record.id, record);
-  basePositions.set(record.id, { ...record.position });
-  createAsset(record);
-  const validation = validateWorld();
-  document.querySelector('#validation-readout').textContent = validation.status;
-  announce(`${record.name} placed at ${addressFor(record.position)}.`);
-  if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'command', command: 'build', commandId: createCommandId('build'), record }));
+  sendAuthoritativeCommand({ type: 'command', command: 'build', commandId: createCommandId('build'), record }, `Building request queued at ${addressFor(record.position)}.`);
 }
 
 function cycleMech(nearestMech = null) {
@@ -885,20 +994,14 @@ function cycleMech(nearestMech = null) {
     return;
   }
   if (localPlayer.mechId === mech.id) {
-    socket.send(JSON.stringify({ type: 'command', command: 'mech.unpilot', commandId: createCommandId('mech-unpilot'), mechId: mech.id }));
-    localPlayer.mechId = null;
-    syncLocalPlayerMesh();
-    announce('Exited the modular mech suit.');
+    sendAuthoritativeCommand({ type: 'command', command: 'mech.unpilot', commandId: createCommandId('mech-unpilot'), mechId: mech.id }, 'Exiting the modular mech suit.');
     return;
   }
-  socket.send(JSON.stringify({ type: 'command', command: 'mech.pilot', commandId: createCommandId('mech-pilot'), mechId: mech.id }));
-  socket.send(JSON.stringify({
+  sendAuthoritativeCommand({ type: 'command', command: 'mech.pilot', commandId: createCommandId('mech-pilot'), mechId: mech.id }, `Boarding ${mech.name}.`);
+  sendAuthoritativeCommand({
     type: 'command', command: 'mech.installModule', commandId: createCommandId('mech-module'),
     mechId: mech.id, moduleKey: mechLoadout[worldState.mechModuleIndex].key, slot: mechLoadout[worldState.mechModuleIndex].slot
-  }));
-  localPlayer.mechId = mech.id;
-  syncLocalPlayerMesh();
-  announce(`Piloting ${mech.name}. Equipped ${worldState.mechModules[worldState.mechModuleIndex]}.`);
+  }, `Installing ${worldState.mechModules[worldState.mechModuleIndex]}.`);
 }
 
 function updateRoamingAgents() {
@@ -962,6 +1065,7 @@ function toggleInspection() {
     ? 'INSPECT · grid cells, sector routes, IDs, and selectable bounds are visible.'
     : 'BEAUTY · explore the basin, then switch modes to see the spatial layer.');
   document.body.classList.toggle('inspection-active', inspection);
+  for (const visual of npcVisuals.values()) visual.label.visible = inspection && visual.mesh.visible;
   showToast(inspection ? 'Inspection layer enabled' : 'Beauty layer enabled');
 }
 
@@ -1019,19 +1123,54 @@ function scheduleReconnect() {
   }, delay);
 }
 
+function readResumeState() {
+  try {
+    const value = globalThis.sessionStorage?.getItem(RESUME_STORAGE_KEY);
+    const parsed = value ? JSON.parse(value) : null;
+    if (!parsed?.playerId || !parsed?.resumeToken) return null;
+    return { playerId: String(parsed.playerId), resumeToken: String(parsed.resumeToken) };
+  } catch {
+    return null;
+  }
+}
+
+function storeResumeState(message) {
+  if (!message?.playerId || !message?.resumeToken) return;
+  try {
+    globalThis.sessionStorage?.setItem(RESUME_STORAGE_KEY, JSON.stringify({
+      playerId: message.playerId,
+      resumeToken: message.resumeToken,
+    }));
+  } catch {
+    // Private browsing and native webviews may deny session storage; the relay
+    // still provides a normal anonymous session in that case.
+  }
+}
+
+function relayUrlWithResume(relayUrl) {
+  const resume = readResumeState();
+  if (!resume) return relayUrl;
+  const separator = relayUrl.includes('?') ? '&' : '?';
+  return `${relayUrl}${separator}playerId=${encodeURIComponent(resume.playerId)}&resumeToken=${encodeURIComponent(resume.resumeToken)}&lastRevision=${encodeURIComponent(worldState.lastSnapshotRevision)}`;
+}
+
 function applyPlayerList(list = []) {
   const incoming = new Set();
+  let activeCount = 0;
   for (const player of list) {
     if (!player?.id || !player.position) continue;
     incoming.add(player.id);
+    networkEntities.set(player.id, player);
+    if ((player.status ?? 'active') === 'active') activeCount += 1;
     if (player.id === localPlayer.id) {
       localPlayer.vehicleId = player.vehicleId ?? null;
       localPlayer.mechId = player.mechId ?? null;
       reconcileLocalPlayer(player);
+      setPlayerMesh(player.id, { ...player, color: player.color ?? '#7be6d0' });
     } else {
       setPlayerMesh(player.id, { ...player, color: player.color ?? '#ffbd69' });
       const remote = players.get(player.id);
-      if (remote) remote.mesh.visible = !player.mechId;
+      if (remote) remote.mesh.visible = player.status === 'active' && !player.mechId;
     }
   }
   for (const [id, entry] of players) {
@@ -1040,7 +1179,7 @@ function applyPlayerList(list = []) {
       players.delete(id);
     }
   }
-  setPlayerCount(incoming.size || 1);
+  setPlayerCount(activeCount || (incoming.size ? 0 : 1));
 }
 
 function setEntityPosition(record, position) {
@@ -1068,6 +1207,7 @@ function syncEntityCollection(entities = []) {
   for (const entity of entities) {
     const record = records.get(entity.id);
     if (!record) continue;
+    networkEntities.set(entity.id, entity);
     record.networkControlled = true;
     setEntityPosition(record, entity.position);
     const visible = !inactive.has(entity.status);
@@ -1076,6 +1216,7 @@ function syncEntityCollection(entities = []) {
     const label = labels.get(record.id);
     if (label) label.visible = visible;
   }
+  refreshSelectedReadout();
 }
 
 function ensureMechRecord(entity) {
@@ -1107,6 +1248,7 @@ function syncMechCollection(mechs = []) {
     const record = ensureMechRecord(entity);
     if (!record) continue;
     incoming.add(record.id);
+    networkEntities.set(entity.id, entity);
     record.networkControlled = true;
     setEntityPosition(record, entity.position);
     const visible = !inactive.has(entity.status);
@@ -1122,6 +1264,7 @@ function syncMechCollection(mechs = []) {
     if (label) label.visible = false;
     meshes.get(record.id)?.traverse((child) => { child.visible = false; });
   }
+  refreshSelectedReadout();
 }
 
 function syncConstructionCollection(constructions = []) {
@@ -1144,6 +1287,7 @@ function syncConstructionCollection(constructions = []) {
       createAsset(record);
     }
     record.networkControlled = true;
+    networkEntities.set(construction.id, construction);
     setEntityPosition(record, construction.position);
     const visible = construction.status !== 'destroyed';
     meshes.get(record.id)?.traverse((child) => { child.visible = visible; });
@@ -1151,23 +1295,47 @@ function syncConstructionCollection(constructions = []) {
     const label = labels.get(record.id);
     if (label) label.visible = visible;
   }
+  refreshSelectedReadout();
 }
 
 function applySnapshotEvents(snapshot) {
-  const latest = snapshot?.events?.at?.(-1);
-  if (!latest || latest.eventId === worldState.lastEventId) return;
-  worldState.lastEventId = latest.eventId;
-  if (latest.type === 'command.rejected') announce(`Action rejected: ${latest.reason}.`);
-  if (latest.type === 'construction.completed') announce('Community construction completed.');
-  if (latest.type === 'boss.started') announce('Boss encounter active. Target its core.');
-  if (latest.type === 'boss.defeated') announce('Boss defeated. The basin is safer.');
-  if (latest.type === 'vehicle.boarded') announce('Vehicle boarded. Interact again to exit.');
+  const events = Array.isArray(snapshot?.events) ? snapshot.events : [];
+  for (const event of events) {
+    const commandId = event?.commandId ? String(event.commandId) : '';
+    if (commandId && worldState.pendingCommands.has(commandId)) {
+      worldState.pendingCommands.delete(commandId);
+      if (event.type === 'command.rejected') announce(`Action rejected: ${event.reason}.`);
+      else if (event.type === 'construction.placed') announce('Community construction accepted by the relay.');
+      else if (event.type === 'settlement.interacted') announce('Settlement update confirmed by the relay.');
+      else if (event.type === 'mech.piloted') announce('Mech pilot authority confirmed.');
+      else if (event.type === 'mech.unpiloted') announce('Mech exit confirmed.');
+      else if (event.type === 'mech.moduleInstalled') announce('Mech module installation confirmed.');
+      else if (event.type === 'vehicle.boarded') announce('Vehicle boarded.');
+      else if (event.type === 'vehicle.exited') announce('Vehicle exit confirmed.');
+      continue;
+    }
+    if (event?.eventId && event.eventId === worldState.lastEventId) continue;
+    if (event?.eventId) worldState.lastEventId = event.eventId;
+    if (event.type === 'construction.completed') announce('Community construction completed.');
+    if (event.type === 'boss.started') announce('Boss encounter active. Target its core.');
+    if (event.type === 'boss.defeated') announce('Boss defeated. The basin is safer.');
+  }
+}
+
+function applyCommandAcknowledgement(message) {
+  const commandId = String(message?.commandId ?? '');
+  if (!commandId || !worldState.pendingCommands.has(commandId)) return;
+  if (message.state === 'rejected') {
+    worldState.pendingCommands.delete(commandId);
+    announce(`Action rejected: ${message.reason ?? 'the relay refused the command'}.`);
+  }
 }
 
 function applySnapshot(snapshot) {
   if (!snapshot || (Number.isFinite(snapshot.revision) && snapshot.revision <= worldState.lastSnapshotRevision)) return;
   if (Number.isFinite(snapshot.revision)) worldState.lastSnapshotRevision = snapshot.revision;
   applyPlayerList(snapshot?.players ?? []);
+  syncNpcCollection(snapshot?.npcs ?? []);
   syncEntityCollection(snapshot?.robots);
   syncEntityCollection(snapshot?.undead);
   syncEntityCollection(snapshot?.vehicles);
@@ -1176,11 +1344,15 @@ function applySnapshot(snapshot) {
   syncConstructionCollection(snapshot?.constructions);
   const resources = snapshot?.settlement?.resources;
   if (resources) {
-    worldState.water = Math.min(100, Number(resources.water ?? worldState.water));
-    worldState.food = Math.min(100, Number(resources.food ?? worldState.food));
-    if (Number.isFinite(Number(snapshot?.settlement?.morale))) worldState.morale = Math.min(100, Number(snapshot.settlement.morale));
+    if (Number.isFinite(Number(resources.water))) worldState.water = Math.min(100, Math.max(0, Number(resources.water)));
+    if (Number.isFinite(Number(resources.food))) worldState.food = Math.min(100, Math.max(0, Number(resources.food)));
+    if (Number.isFinite(Number(snapshot?.settlement?.morale))) worldState.morale = Math.min(100, Math.max(0, Number(snapshot.settlement.morale)));
+    if (Number.isFinite(Number(resources.power))) worldState.power = Math.max(0, Number(resources.power));
+    updateObjectiveFromSnapshot(snapshot);
     updateReadouts(true);
   }
+  setText(ui.revision, Number.isFinite(Number(snapshot.revision)) ? String(snapshot.revision) : 'LOCAL');
+  refreshSelectedReadout();
   applySnapshotEvents(snapshot);
 }
 
@@ -1202,7 +1374,7 @@ function connect({ manual = false } = {}) {
   const configuredRelayUrl = String(import.meta.env.VITE_RELAY_URL ?? '').trim();
   const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
   const host = window.location.hostname || 'localhost';
-  const relayUrl = configuredRelayUrl || (protocol === 'wss' ? `${protocol}://${host}/api/ws` : `${protocol}://${host}:8787`);
+  const relayUrl = relayUrlWithResume(configuredRelayUrl || (protocol === 'wss' ? `${protocol}://${host}/api/ws` : `${protocol}://${host}:8787`));
   setConnectionStatus('connecting');
   let clientSocket;
   try {
@@ -1228,17 +1400,24 @@ function connect({ manual = false } = {}) {
       return;
     }
     if (message.type === 'welcome') {
+      storeResumeState(message);
       localPlayer.id = message.playerId;
       localPlayer.hasAuthoritativeState = false;
       localPlayer.lastAuthoritativeAt = 0;
       worldState.lastSnapshotRevision = -1;
       worldState.lastEventId = '';
+      worldState.pendingCommands.clear();
       applyPlayerList(message.players ?? []);
       applySnapshot(message.snapshot);
-      setText(ui.event, 'Connected to Saltglass Basin. Find the old relay station and bring the commons online.');
+      setText(ui.event, message.resumed
+        ? 'Reconnected to your Saltglass Basin survivor.'
+        : 'Connected to Saltglass Basin. Find the old relay station and bring the commons online.');
     }
     if (message.type === 'snapshot') {
       applySnapshot(message.snapshot);
+    }
+    if (message.type === 'command.ack') {
+      applyCommandAcknowledgement(message);
     }
     if (message.type === 'players') {
       applyPlayerList(message.players ?? []);
@@ -1266,7 +1445,7 @@ function sendInput(direction = { x: 0, z: 0 }, force = false) {
   const now = performance.now();
   if (!force && now - lastInputSentAt < 50) return;
   lastInputSentAt = now;
-  socket.send(JSON.stringify({ type: 'input', direction, sprint: keys.has('ShiftLeft') || keys.has('ShiftRight') }));
+  socket.send(JSON.stringify({ type: 'input', direction, sprint: touchSprinting || keys.has('ShiftLeft') || keys.has('ShiftRight') }));
 }
 
 function movePlayer(delta) {
@@ -1276,8 +1455,10 @@ function movePlayer(delta) {
   const z = keyboardZ || touchVector.y;
   const direction = new THREE.Vector2(x, z);
   if (direction.lengthSq() > 1) direction.normalize();
-  localPlayer.position.x = THREE.MathUtils.clamp(localPlayer.position.x + direction.x * localPlayer.speed * delta, grid.sceneBounds.min.x + 2, grid.sceneBounds.max.x - 2);
-  localPlayer.position.z = THREE.MathUtils.clamp(localPlayer.position.z + direction.y * localPlayer.speed * delta, grid.sceneBounds.min.z + 2, grid.sceneBounds.max.z - 2);
+  const sprinting = touchSprinting || keys.has('ShiftLeft') || keys.has('ShiftRight');
+  const movementSpeed = localPlayer.speed * (sprinting ? 10 / 7 : 1);
+  localPlayer.position.x = THREE.MathUtils.clamp(localPlayer.position.x + direction.x * movementSpeed * delta, grid.sceneBounds.min.x + 2, grid.sceneBounds.max.x - 2);
+  localPlayer.position.z = THREE.MathUtils.clamp(localPlayer.position.z + direction.y * movementSpeed * delta, grid.sceneBounds.min.z + 2, grid.sceneBounds.max.z - 2);
   applyLocalReconciliation(delta);
   syncLocalPlayerMesh();
   updateWorldReadout();
@@ -1327,9 +1508,17 @@ function clearTouch() {
   document.querySelector('#touch-pad span').style.transform = '';
 }
 
+function setTouchSprint(active) {
+  touchSprinting = Boolean(active);
+  const button = document.querySelector('#touch-sprint');
+  button?.setAttribute('aria-pressed', String(touchSprinting));
+  button?.classList.toggle('active', touchSprinting);
+}
+
 function clearMovementInput() {
   keys.clear();
   clearTouch();
+  setTouchSprint(false);
   sendInput({ x: 0, z: 0 }, true);
 }
 
@@ -1388,9 +1577,16 @@ document.querySelector('#mech-button').addEventListener('click', cycleMech);
 document.querySelector('#attack-button')?.addEventListener('click', attackTarget);
 document.querySelector('#clear-selection').addEventListener('click', () => updateSelection(null));
 const pad = document.querySelector('#touch-pad');
-pad.addEventListener('touchstart', touchPoint, { passive: true });
-pad.addEventListener('touchmove', touchPoint, { passive: true });
-pad.addEventListener('touchend', clearTouch, { passive: true });
+pad.addEventListener('pointerdown', (event) => { pad.setPointerCapture?.(event.pointerId); touchPoint(event); });
+pad.addEventListener('pointermove', touchPoint);
+pad.addEventListener('pointerup', clearTouch);
+pad.addEventListener('pointercancel', clearTouch);
+pad.addEventListener('lostpointercapture', clearTouch);
+const touchSprint = document.querySelector('#touch-sprint');
+touchSprint.addEventListener('pointerdown', (event) => { touchSprint.setPointerCapture?.(event.pointerId); setTouchSprint(true); });
+touchSprint.addEventListener('pointerup', () => setTouchSprint(false));
+touchSprint.addEventListener('pointercancel', () => setTouchSprint(false));
+touchSprint.addEventListener('lostpointercapture', () => setTouchSprint(false));
 
 resize();
 updateReadouts(true);

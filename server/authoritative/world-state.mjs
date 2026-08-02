@@ -75,7 +75,7 @@ const MODULES = Object.freeze({
 
 const BLUEPRINTS = new Set(Object.keys(DEFAULT_RULES.construction));
 const KNOWN_COMMANDS = new Set([
-  'player.join', 'player.leave', 'player.move', 'player.attack', 'player.interact',
+  'player.join', 'player.resume', 'player.disconnect', 'player.leave', 'player.move', 'player.attack', 'player.interact',
   'player.enterVehicle', 'player.exitVehicle',
   'npc.spawn', 'npc.assign', 'robot.spawn', 'undead.spawn',
   'vehicle.spawn', 'vehicle.drive',
@@ -356,6 +356,8 @@ export class WorldState {
   #applyCommand(command) {
     const handler = {
       'player.join': () => this.#joinPlayer(command),
+      'player.resume': () => this.#resumePlayer(command),
+      'player.disconnect': () => this.#disconnectPlayer(command),
       'player.leave': () => this.#leavePlayer(command),
       'player.move': () => this.#movePlayer(command),
       'player.attack': () => this.#playerAttack(command),
@@ -385,7 +387,8 @@ export class WorldState {
   }
 
   #joinPlayer(command) {
-    if (this.state.players.size >= this.rules.maxPlayers) return this.#reject(command, 'player limit reached');
+    const activePlayerCount = [...this.state.players.values()].filter((player) => player.status === 'active').length;
+    if (activePlayerCount >= this.rules.maxPlayers) return this.#reject(command, 'player limit reached');
     const id = this.requestedId('player', command.playerId);
     if (this.state.players.has(id)) return this.#reject(command, 'player id already exists');
     const position = this.#clampPosition(positionOf(command.position ?? { x: 0, y: 0.9, z: 16 }));
@@ -413,6 +416,27 @@ export class WorldState {
     if (player.mechId) this.#releaseMechPilot(this.state.mechs.get(player.mechId), { placePlayer: false });
     this.state.players.delete(player.id);
     this.#event('player.left', { playerId: player.id });
+  }
+
+  #resumePlayer(command) {
+    const player = this.state.players.get(command.playerId);
+    if (!player) return this.#reject(command, 'player not found');
+    player.status = 'active';
+    player.input = { x: 0, z: 0, sprint: false };
+    player.velocity = { x: 0, y: 0, z: 0 };
+    if (command.name) player.name = String(command.name);
+    this.#event('player.resumed', { playerId: player.id });
+  }
+
+  #disconnectPlayer(command) {
+    const player = this.state.players.get(command.playerId);
+    if (!player) return this.#reject(command, 'player not found');
+    if (player.vehicleId) this.#removePassenger(player.vehicleId, player.id);
+    if (player.mechId) this.#releaseMechPilot(this.state.mechs.get(player.mechId), { placePlayer: false });
+    player.input = { x: 0, z: 0, sprint: false };
+    player.velocity = { x: 0, y: 0, z: 0 };
+    player.status = 'offline';
+    this.#event('player.disconnected', { playerId: player.id });
   }
 
   #movePlayer(command) {
@@ -601,6 +625,11 @@ export class WorldState {
     if (!blueprint || !BLUEPRINTS.has(command.blueprint)) return this.#reject(command, 'unknown construction blueprint');
     const position = this.#snapPosition(command.position);
     if (!this.#insideBounds(position)) return this.#reject(command, 'construction is outside world bounds');
+    if (command.playerId !== undefined) {
+      const player = this.state.players.get(command.playerId);
+      if (!player || player.status !== 'active') return this.#reject(command, 'active player not found');
+      if (horizontalDistance(player.position, position) > 12) return this.#reject(command, 'construction site is out of reach');
+    }
     const id = this.requestedId('construction', command.constructionId);
     if (this.state.constructions.has(id)) return this.#reject(command, 'construction id already exists');
     for (const existing of this.state.constructions.values()) {
