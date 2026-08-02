@@ -1,5 +1,6 @@
 const SNAPSHOT_TABLE = 'wasteland_rooms';
 const EVENT_TABLE = 'wasteland_events';
+const COMMAND_TABLE = 'wasteland_commands';
 const CLAIM_LEASE_RPC = 'try_claim_wasteland_lease';
 const RELEASE_LEASE_RPC = 'release_wasteland_lease';
 
@@ -26,9 +27,9 @@ async function post(table, body, search = '', prefer) {
   if (!response.ok) throw new Error(`Supabase ${table} write failed (${response.status})`);
 }
 
-async function get(table, search = '') {
+async function get(table, search = '', { notFoundIsNull = true } = {}) {
   const response = await fetch(`${endpoint(table)}${search}`, { headers: headers() });
-  if (response.status === 404) return null;
+  if (response.status === 404 && notFoundIsNull) return null;
   if (!response.ok) throw new Error(`Supabase ${table} read failed (${response.status})`);
   return response.json();
 }
@@ -107,6 +108,35 @@ export function createSupabaseStore({ worldId } = {}) {
         p_owner_id: String(ownerId),
       });
       return booleanResult(result);
+    },
+    async enqueueCommand(command) {
+      if (!configured()) return { persisted: false, reason: 'not-configured' };
+      const commandId = String(command?.commandId ?? '').trim();
+      if (!commandId) throw new Error('durable command requires commandId');
+      await post(COMMAND_TABLE, {
+        world_id: id,
+        command_id: commandId,
+        command,
+      }, '?on_conflict=world_id,command_id', 'resolution=ignore-duplicates,return=minimal');
+      return { persisted: true, commandId };
+    },
+    async pendingCommands(limit = 500) {
+      if (!configured()) return [];
+      const boundedLimit = Math.max(1, Math.min(2_000, Number(limit) || 500));
+      const rows = await get(COMMAND_TABLE, `?world_id=eq.${encodeURIComponent(id)}&processed_at=is.null&select=command_id,command&order=created_at.asc&limit=${boundedLimit}`, { notFoundIsNull: false });
+      return (rows ?? []).map((row) => row.command).filter((command) => command && typeof command === 'object');
+    },
+    async markCommandProcessed(commandId) {
+      if (!configured()) return { persisted: false, reason: 'not-configured' };
+      const value = String(commandId ?? '').trim();
+      if (!value) return { persisted: false, reason: 'missing-command-id' };
+      const response = await fetch(`${endpoint(COMMAND_TABLE)}?world_id=eq.${encodeURIComponent(id)}&command_id=eq.${encodeURIComponent(value)}&processed_at=is.null`, {
+        method: 'PATCH',
+        headers: headers('return=minimal'),
+        body: JSON.stringify({ processed_at: new Date().toISOString() }),
+      });
+      if (!response.ok) throw new Error(`Supabase ${COMMAND_TABLE} acknowledgement failed (${response.status})`);
+      return { persisted: true, commandId: value };
     },
   };
 }

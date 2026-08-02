@@ -105,3 +105,33 @@ test('configured store claims and releases the dedicated authority lease through
     restoreEnvironment(previous);
   }
 });
+
+test('configured store persists, reads, and acknowledges durable commands', async () => {
+  const previous = { url: process.env.SUPABASE_URL, key: process.env.SUPABASE_SERVICE_ROLE_KEY };
+  process.env.SUPABASE_URL = 'https://example.supabase.co';
+  process.env.SUPABASE_SERVICE_ROLE_KEY = 'server-only-test-key';
+  const requests = [];
+  globalThis.fetch = async (url, options = {}) => {
+    requests.push({ url: String(url), options });
+    if (String(url).includes('wasteland_commands?world_id=')) {
+      return {
+        ok: true,
+        status: 200,
+        async json() { return [{ command_id: 'build-1', command: { type: 'construction.place', commandId: 'build-1' } }]; },
+      };
+    }
+    return { ok: true, status: 201, async json() { return []; } };
+  };
+  try {
+    const store = createSupabaseStore({ worldId: 'test-world' });
+    assert.deepEqual(await store.enqueueCommand({ type: 'construction.place', commandId: 'build-1' }), { persisted: true, commandId: 'build-1' });
+    assert.deepEqual(await store.pendingCommands(), [{ type: 'construction.place', commandId: 'build-1' }]);
+    assert.deepEqual(await store.markCommandProcessed('build-1'), { persisted: true, commandId: 'build-1' });
+    assert.match(requests[0].url, /wasteland_commands\?on_conflict=world_id,command_id$/);
+    assert.match(requests[1].url, /wasteland_commands\?world_id=eq\.test-world/);
+    assert.match(requests[2].url, /wasteland_commands\?world_id=eq\.test-world&command_id=eq\.build-1/);
+    assert.equal(requests[2].options.method, 'PATCH');
+  } finally {
+    restoreEnvironment(previous);
+  }
+});

@@ -14,12 +14,63 @@ let pendingPersistenceEvents = [];
 let lastQueuedPersistenceRevision = 0;
 let persistenceTail = Promise.resolve();
 const palette = ['#7be6d0', '#ffbd69', '#c99cff', '#ff8f83'];
+const DURABLE_COMMAND_TYPES = new Set([
+  'player.join', 'player.leave', 'player.attack', 'player.interact',
+  'player.enterVehicle', 'player.exitVehicle', 'npc.spawn', 'npc.assign',
+  'robot.spawn', 'undead.spawn', 'vehicle.spawn', 'vehicle.drive',
+  'construction.place', 'mech.create', 'mech.installModule', 'mech.activate',
+  'mech.pilot', 'mech.unpilot', 'boss.start',
+]);
+const durableCommandIds = new Set();
+const processingCommandIds = new Set();
+
+function isDurableCommand(command) {
+  return Boolean(command?.commandId && DURABLE_COMMAND_TYPES.has(command.type));
+}
+
+function rememberDurableCommand(command) {
+  if (isDurableCommand(command)) durableCommandIds.add(String(command.commandId));
+}
 
 function sharedCommand(command) {
   if (!command) return { accepted: false, reason: 'command is required' };
-  if (!sharedRoom.enabled || sharedRoom.isLeader) return world.enqueue(command);
-  void sharedRoom.publishCommand(command).catch((error) => console.error(`Shared command broadcast failed: ${error.message}`));
+  if (!sharedRoom.enabled) return world.enqueue(command);
+  if (!isDurableCommand(command)) {
+    if (sharedRoom.isLeader) return world.enqueue(command);
+    void sharedRoom.publishCommand(command).catch((error) => console.error(`Shared command broadcast failed: ${error.message}`));
+    return { accepted: true, queued: true, ...(command.commandId ? { commandId: command.commandId } : {}) };
+  }
+  rememberDurableCommand(command);
+  void (async () => {
+    await persistence.enqueueCommand(command);
+    if (sharedRoom.isLeader) world.enqueue(command);
+    else await sharedRoom.publishCommand(command);
+  })().catch((error) => console.error(`Durable shared command held for retry: ${error.message}`));
   return { accepted: true, queued: true, ...(command.commandId ? { commandId: command.commandId } : {}) };
+}
+
+async function restorePendingCommands() {
+  if (!sharedRoom.enabled) return;
+  const commands = await persistence.pendingCommands();
+  for (const command of commands) {
+    if (!isDurableCommand(command)) continue;
+    rememberDurableCommand(command);
+    const result = world.enqueue(command);
+    if (!result.accepted) await persistence.markCommandProcessed(command.commandId);
+  }
+}
+
+function acknowledgeProcessedEvents(currentSnapshot) {
+  if (!sharedRoom.enabled || !persistence.enabled) return;
+  const commandIds = new Set((currentSnapshot.events ?? []).map((event) => String(event.commandId ?? '')).filter((id) => id && durableCommandIds.has(id)));
+  for (const commandId of commandIds) {
+    if (processingCommandIds.has(commandId)) continue;
+    processingCommandIds.add(commandId);
+    persistence.markCommandProcessed(commandId)
+      .then(() => durableCommandIds.delete(commandId))
+      .catch((error) => console.error(`Durable command acknowledgement failed: ${error.message}`))
+      .finally(() => processingCommandIds.delete(commandId));
+  }
 }
 
 function applySharedSnapshot(nextSnapshot) {
@@ -34,7 +85,9 @@ const sharedRoom = createSharedRoomCoordinator({
   worldId: 'saltglass-basin',
   persistence,
   onCommand(command) {
-    if (sharedRoom.isLeader) world.enqueue(command);
+    if (!sharedRoom.isLeader || !command) return;
+    rememberDurableCommand(command);
+    world.enqueue(command);
   },
   onSnapshot(nextSnapshot) {
     applySharedSnapshot(nextSnapshot);
@@ -42,8 +95,9 @@ const sharedRoom = createSharedRoomCoordinator({
   onSnapshotRequest() {
     if (sharedRoom.isLeader) void sharedRoom.publishSnapshot(snapshot()).catch((error) => console.error(`Shared snapshot broadcast failed: ${error.message}`));
   },
-  onLeadershipChange(isLeader) {
+  async onLeadershipChange(isLeader) {
     if (!isLeader) return;
+    await restorePendingCommands();
     const current = snapshot();
     broadcastSnapshot(current);
     void sharedRoom.publishSnapshot(current).catch((error) => console.error(`Shared snapshot broadcast failed: ${error.message}`));
@@ -122,6 +176,7 @@ const simulationTimer = setInterval(() => {
   world.step();
   const current = snapshot();
   if (persistence.enabled) pendingPersistenceEvents.push(...current.events);
+  acknowledgeProcessedEvents(current);
   broadcastSnapshot(current);
   if (sharedRoom.enabled && current.tick % 2 === 0) void sharedRoom.publishSnapshot(current).catch((error) => console.error(`Shared snapshot broadcast failed: ${error.message}`));
   if (current.tick % 100 === 0) queuePersistence(current);
