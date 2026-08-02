@@ -48,16 +48,17 @@ if (!(Test-Path .\dist\index.html)) { throw 'Vite build did not produce dist/ind
 # 3. Record the build identity before copying it into native projects.
 Get-FileHash .\dist\index.html -Algorithm SHA256
 
-# 4. Copy web assets/config and update native dependencies.
+# 4. Copy the verified web release into both generated native shells.
 Push-Location .\mobile\capacitor
-npm run sync
+npm run copy
 Pop-Location
 ```
 
-Use `copy` for a web asset refresh when native dependencies are unchanged. Use
-`sync` after native dependency or plugin changes. Never run either command
-against an unreviewed development `dist/` and then call that result a release
-candidate.
+The checked-in copy script validates the explicit WSS relay before copying and
+updates both native shells without requiring a local Capacitor CLI extraction.
+Use `sync` after native dependency or plugin changes when the pinned CLI is
+available. Never run either command against an unreviewed development `dist/`
+and then call that result a release candidate.
 
 ## Generated platform state
 
