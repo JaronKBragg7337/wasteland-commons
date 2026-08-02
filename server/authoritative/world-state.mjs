@@ -601,6 +601,11 @@ export class WorldState {
     if (!blueprint || !BLUEPRINTS.has(command.blueprint)) return this.#reject(command, 'unknown construction blueprint');
     const position = this.#snapPosition(command.position);
     if (!this.#insideBounds(position)) return this.#reject(command, 'construction is outside world bounds');
+    if (command.playerId !== undefined) {
+      const player = this.state.players.get(command.playerId);
+      if (!player || player.status !== 'active') return this.#reject(command, 'active player not found');
+      if (horizontalDistance(player.position, position) > 12) return this.#reject(command, 'construction site is out of reach');
+    }
     const id = this.requestedId('construction', command.constructionId);
     if (this.state.constructions.has(id)) return this.#reject(command, 'construction id already exists');
     for (const existing of this.state.constructions.values()) {
