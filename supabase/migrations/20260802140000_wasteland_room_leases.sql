@@ -10,8 +10,9 @@ create table if not exists public.wasteland_room_leases (
 
 alter table public.wasteland_room_leases enable row level security;
 
--- The relay calls these functions with a server-only Supabase key. There are
--- deliberately no anon/authenticated table policies or function permissions.
+-- The relay calls these functions with a server-only Supabase key. They run as
+-- the invoker, and there are deliberately no anon/authenticated table policies
+-- or function permissions.
 create or replace function public.try_claim_wasteland_lease(
   p_world_id text,
   p_owner_id text,
@@ -19,7 +20,7 @@ create or replace function public.try_claim_wasteland_lease(
 )
 returns boolean
 language plpgsql
-security definer
+security invoker
 set search_path = pg_catalog, public
 as $$
 begin
@@ -51,7 +52,7 @@ create or replace function public.release_wasteland_lease(
 )
 returns boolean
 language plpgsql
-security definer
+security invoker
 set search_path = pg_catalog, public
 as $$
 begin

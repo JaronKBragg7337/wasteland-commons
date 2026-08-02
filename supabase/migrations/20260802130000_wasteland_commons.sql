@@ -37,5 +37,8 @@ create index if not exists wasteland_events_world_tick_idx
 alter table public.wasteland_rooms enable row level security;
 alter table public.wasteland_events enable row level security;
 
+revoke all on table public.wasteland_rooms from public, anon, authenticated;
+revoke all on table public.wasteland_events from public, anon, authenticated;
+
 -- No public read/write policy is intentional: the authoritative relay owns persistence.
 -- Add narrowly-scoped authenticated policies only when a player-facing read path exists.

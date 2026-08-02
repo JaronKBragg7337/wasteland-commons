@@ -3,6 +3,7 @@ dist/
 .vite/
 .runtime/
 *.log
+supabase/.temp/
 
 
 .vercel

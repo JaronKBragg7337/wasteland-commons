@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { supabaseConfigured, supabaseServerKey, supabaseUrl } from './persistence/supabase-config.mjs';
 
 const DEFAULT_LEASE_SECONDS = 9;
 const LEASE_RENEW_INTERVAL_MS = 3_000;
@@ -6,7 +7,7 @@ const SUBSCRIBE_TIMEOUT_MS = 12_000;
 const MAX_PENDING_MESSAGES = 2_000;
 
 function configured() {
-  return Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
+  return supabaseConfigured();
 }
 
 function topicFor(worldId) {
@@ -52,8 +53,8 @@ export function createSharedRoomCoordinator({
 
   async function defaultRealtimeClientFactory() {
     const { createClient } = await import('@supabase/supabase-js');
-    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    return createClient(process.env.SUPABASE_URL, key, {
+    const key = supabaseServerKey();
+    return createClient(supabaseUrl(), key, {
       auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
       realtime: { params: { eventsPerSecond: 40 } },
       global: { headers: { 'x-client-info': 'wasteland-commons-relay/1' } },

@@ -9,18 +9,43 @@ function restoreEnvironment(previous) {
   else process.env.SUPABASE_URL = previous.url;
   if (previous.key === undefined) delete process.env.SUPABASE_SERVICE_ROLE_KEY;
   else process.env.SUPABASE_SERVICE_ROLE_KEY = previous.key;
+  if ('secret' in previous) {
+    if (previous.secret === undefined) delete process.env.SUPABASE_SECRET_KEY;
+    else process.env.SUPABASE_SECRET_KEY = previous.secret;
+  }
   globalThis.fetch = originalFetch;
 }
 
 test('unconfigured Supabase store is an explicit no-op', async () => {
-  const previous = { url: process.env.SUPABASE_URL, key: process.env.SUPABASE_SERVICE_ROLE_KEY };
+  const previous = { url: process.env.SUPABASE_URL, key: process.env.SUPABASE_SERVICE_ROLE_KEY, secret: process.env.SUPABASE_SECRET_KEY };
   delete process.env.SUPABASE_URL;
   delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+  delete process.env.SUPABASE_SECRET_KEY;
   try {
     const store = createSupabaseStore({ worldId: 'test-world' });
     assert.equal(store.enabled, false);
     assert.deepEqual(await store.load(), null);
     assert.deepEqual(await store.persist({ revision: 1 }), { persisted: false, reason: 'not-configured' });
+  } finally {
+    restoreEnvironment(previous);
+  }
+});
+
+test('modern Supabase secret keys configure the server-only store and take precedence', async () => {
+  const previous = { url: process.env.SUPABASE_URL, key: process.env.SUPABASE_SERVICE_ROLE_KEY, secret: process.env.SUPABASE_SECRET_KEY };
+  process.env.SUPABASE_URL = 'https://example.supabase.co';
+  process.env.SUPABASE_SECRET_KEY = 'modern-secret-key';
+  process.env.SUPABASE_SERVICE_ROLE_KEY = 'legacy-service-role-key';
+  const requests = [];
+  globalThis.fetch = async (url, options = {}) => {
+    requests.push({ url: String(url), options });
+    return { ok: true, status: 200, async json() { return []; } };
+  };
+  try {
+    const store = createSupabaseStore({ worldId: 'test-world' });
+    assert.equal(store.enabled, true);
+    await store.load();
+    assert.equal(requests[0].options.headers.apikey, 'modern-secret-key');
   } finally {
     restoreEnvironment(previous);
   }

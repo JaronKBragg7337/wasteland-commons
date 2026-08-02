@@ -81,6 +81,14 @@ function applySharedSnapshot(nextSnapshot) {
   broadcastSnapshot(nextSnapshot);
 }
 
+async function restoreNewerPersistedSnapshot() {
+  if (!persistence.enabled) return;
+  const persistedSnapshot = await persistence.load();
+  if (!persistedSnapshot || Number(persistedSnapshot.revision) <= Number(world.snapshot().revision)) return;
+  world = restoreWorld(persistedSnapshot, { rules: { playerSpeed: 7, sprintSpeed: 10 } });
+  pendingPersistenceEvents = [];
+}
+
 const sharedRoom = createSharedRoomCoordinator({
   worldId: 'saltglass-basin',
   persistence,
@@ -97,6 +105,7 @@ const sharedRoom = createSharedRoomCoordinator({
   },
   async onLeadershipChange(isLeader) {
     if (!isLeader) return;
+    await restoreNewerPersistedSnapshot();
     await restorePendingCommands();
     const current = snapshot();
     broadcastSnapshot(current);

@@ -35,7 +35,7 @@
 
 ## Persistence boundary
 
-The public Vercel function is currently configured for instance-local memory. The repository includes a server-only Supabase persistence adapter, idempotent event migration, authority lease, durable command inbox, and regression tests, but no existing Supabase project is reused. A dedicated shared relay/state backend must be provisioned and verified before the public multiplayer gate can pass. Provisioning the dedicated project requires explicit organization and cost confirmation.
+The public Vercel function is currently configured for instance-local memory. The repository includes a server-only Supabase persistence adapter, modern `SUPABASE_SECRET_KEY` support with legacy fallback, idempotent event migration, authority lease, durable command inbox, and regression tests, but no existing Supabase project is reused. A dedicated shared relay/state backend must be provisioned and verified before the public multiplayer gate can pass. Provisioning the dedicated project requires explicit organization and cost confirmation.
 
 ## Store boundary
 
