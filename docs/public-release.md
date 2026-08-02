@@ -10,9 +10,10 @@
 
 ## Current release record
 
-- Production source commit: `c84cd94` (`Stabilize construction support and settlement cadence`)
-- Production deployment: `dpl_6yBVNYiNx4C7CUZZLdWvMkEtQMye` — READY
-- Current release candidate: `e66b564` (`Make native web packaging reproducible`), public PR [#1](https://github.com/JaronKBragg7337/wasteland-commons/pull/1), CI green
+- Previous production source commit: `c84cd94` (`Stabilize construction support and settlement cadence`)
+- Previous production deployment: `dpl_6yBVNYiNx4C7CUZZLdWvMkEtQMye` — READY
+- Current production candidate source: `31ba9ec` (`Refresh public release evidence`), deployed from `agent/supabase-release-hardening` / public PR [#1](https://github.com/JaronKBragg7337/wasteland-commons/pull/1), CI green
+- Current production deployment: `dpl_3Nk2EpV4tHY7jCUR7fXw1isxCahp` — READY, aliased to `https://wasteland-commons.vercel.app`
 - Manifest hash: `2332c91ca27b9abe625edce1a289a1f2d6ec9cfdd9435b9ecefa3200b57dda64`
 - Browser verification rerun: desktop, 390×844 iPhone-sized, and 412×915 Android-sized viewports; construction remained `VALIDATED` after the authoritative round trip.
 
@@ -32,7 +33,7 @@
 - The authority regression suite verified that player input drives the boarded vehicle only for its driver.
 - Reconnect behavior returned to `CONNECTED` after the relay was restarted.
 - The material audit found all eight semantic materials and their generated images.
-- The reproducible gate is `npm run verify:public`; the historical production run is intentionally failing with `sharedSnapshot: false` because that deployment predates the dedicated backend connection. It must be rerun against the candidate deployment before release sign-off.
+- The reproducible gate is `npm run verify:public`; the current production candidate reaches both WebSocket functions but reports `sharedSnapshot: false` because the server-only key is not yet present. It must be rerun after the Vercel secret handoff before release sign-off.
 
 ## Persistence boundary
 
