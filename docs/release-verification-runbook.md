@@ -25,11 +25,11 @@ the evidence.
 From G:\My Drive\Codex Active\projects\wasteland-commons:
 
 ~~~powershell
-bun install
-bun run test:world
+npm install
+npm run test:world
 node --test server/authoritative/world-state.test.mjs
-bun tools/material-audit.mjs --strict
-bun run build
+npm run audit:materials
+npm run build
 ~~~
 
 Record the exit code and full output for each command. The local gate is ready
@@ -41,7 +41,7 @@ For a local browser run, use two terminals from the same project root:
 
 ~~~powershell
 node server/index.mjs
-bun run dev -- --host 0.0.0.0
+npm run dev -- --host 0.0.0.0
 ~~~
 
 Open the URL printed by Vite. Confirm the relay health endpoint responds at

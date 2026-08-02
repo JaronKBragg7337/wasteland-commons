@@ -10,7 +10,7 @@ The world is built around a spatial contract: every meaningful object has a stab
 
 The first finished release is a two-player cooperative wasteland with helpful and hostile robots, undead creatures, construction, community NPC roles, vehicles, giant robot bosses, and a modular pilotable mech suit.
 
-The initial Saltglass Basin scene is the playable foundation. It is intentionally small enough to finish as a coherent game while its data contracts are designed to expand.
+The release world is a 320m × 256m authored region with three connected sectors, deterministic routes, field outposts, two boss sites, and the full cooperative loop. Its data contracts keep expansion safe without requiring a disposable prototype branch.
 
 ## Run locally
 
@@ -24,7 +24,7 @@ Open the Vite URL. The relay runs on port `8787`. Desktop uses WASD; phones use 
 
 ## Public release
 
-The current public client is [wasteland-commons.vercel.app](https://wasteland-commons.vercel.app/). Its read-only deployment check is [the health endpoint](https://wasteland-commons.vercel.app/api/health), and the browser connects to `/api/ws` over WSS. The public release is CC0-licensed and has no login requirement. The Vercel function currently uses instance-local in-memory state, so it is not yet the authoritative shared multiplayer deployment; a dedicated shared relay and Supabase project are explicit next provisioning steps, not existing-project reuse.
+The current public client is [wasteland-commons.vercel.app](https://wasteland-commons.vercel.app/). Its read-only deployment check is [the health endpoint](https://wasteland-commons.vercel.app/api/health), its public spatial/material contract is [the manifest endpoint](https://wasteland-commons.vercel.app/api/manifest), and the browser connects to `/api/ws` over WSS. The public release is CC0-licensed and has no login requirement. The Vercel function currently uses instance-local in-memory state, so it is not yet the authoritative shared multiplayer deployment; a dedicated shared relay and Supabase project are explicit next provisioning steps, not existing-project reuse.
 
 ## Release boundary
 

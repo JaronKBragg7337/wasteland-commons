@@ -4,6 +4,7 @@
 
 - Client: https://wasteland-commons.vercel.app/
 - Deployment health: https://wasteland-commons.vercel.app/api/health
+- Public spatial/material contract: https://wasteland-commons.vercel.app/api/manifest
 - Multiplayer transport: `wss://wasteland-commons.vercel.app/api/ws`
 - License: CC0 1.0 Universal in `LICENSE`
 
@@ -11,6 +12,7 @@
 
 - Production Vite build completed through Vercel.
 - The public endpoint serves the client and reports its current release gate at `/api/health`.
+- The public manifest endpoint exposes the CC0 world contract, 320m × 256m bounds, 4m grid, three sectors, stable record IDs, and material hashes without exposing server credentials.
 - The local authoritative relay passed the two-client protocol test, including shared player state and construction replication.
 - A fresh production two-client WebSocket audit completed both handshakes, but the clients received isolated player lists because Vercel function instances do not share the in-memory world. Public shared multiplayer is therefore not marked passed.
 - Local desktop, 390×844 iPhone-sized, and 412×915 Android-sized layouts were inspected.

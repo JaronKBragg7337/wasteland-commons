@@ -7,6 +7,23 @@ const canvas = document.querySelector('#world');
 const scene = new THREE.Scene();
 scene.background = new THREE.Color('#101d20');
 scene.fog = new THREE.Fog('#101d20', 38, 170);
+const worldBounds = {
+  minX: grid.sceneBounds.min.x,
+  maxX: grid.sceneBounds.max.x,
+  minZ: grid.sceneBounds.min.z,
+  maxZ: grid.sceneBounds.max.z,
+  width: grid.sceneBounds.max.x - grid.sceneBounds.min.x,
+  depth: grid.sceneBounds.max.z - grid.sceneBounds.min.z,
+  centerX: (grid.sceneBounds.min.x + grid.sceneBounds.max.x) / 2,
+  centerZ: (grid.sceneBounds.min.z + grid.sceneBounds.max.z) / 2,
+};
+const sectorPalette = ['#d8bb79', '#ff947d', '#7be6d0', '#b9a6c9'];
+const sectorDefinitions = (manifest.sectors ?? []).map((sector, index) => ({
+  id: sector.id,
+  name: sector.name,
+  color: sectorPalette[index % sectorPalette.length],
+  bounds: sector.bounds,
+}));
 
 const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 300);
 camera.position.set(16, 14, 26);
@@ -38,11 +55,17 @@ const worldRoot = new THREE.Group();
 const objectRoot = new THREE.Group();
 const playerRoot = new THREE.Group();
 const inspectionRoot = new THREE.Group();
-scene.add(worldRoot, objectRoot, playerRoot, inspectionRoot);
+const selectionRoot = new THREE.Group();
+const collisionRoot = new THREE.Group();
+inspectionRoot.add(collisionRoot);
+scene.add(worldRoot, objectRoot, playerRoot, inspectionRoot, selectionRoot);
 
 const records = new Map(manifest.records.map((record) => [record.id, record]));
 const meshes = new Map();
 const labels = new Map();
+const collisionProxies = new Map();
+const landmarkTreatments = new Map();
+const sectorLabels = [];
 const basePositions = new Map(manifest.records.map((record) => [record.id, { ...record.position }]));
 const players = new Map();
 const materialCache = new Map();
@@ -75,6 +98,7 @@ const mechLoadout = [
 ];
 let inspection = false;
 let selectedId = null;
+let selectedVisual = null;
 let socket = null;
 let reconnectTimer = null;
 let reconnectAttempt = 0;
@@ -101,6 +125,8 @@ const ui = {
   morale: document.querySelector('#morale-readout'),
   mech: document.querySelector('#mech-readout'),
   world: document.querySelector('#world-readout'),
+  sector: document.querySelector('#sector-readout'),
+  route: document.querySelector('#route-readout'),
   event: document.querySelector('#event-readout')
 };
 
@@ -113,6 +139,32 @@ function addressFor(position) {
   const row = Math.floor((position.z - grid.origin.z) / grid.cellSize);
   const level = Math.max(0, Math.floor(position.y / grid.levelHeight));
   return `L${level}-H${String(column).padStart(2, '0')}-R${String(row).padStart(2, '0')}`;
+}
+
+function sectorFor(position) {
+  const direct = sectorDefinitions.find((sector) => (
+    position.x >= sector.bounds.min.x && position.x <= sector.bounds.max.x &&
+    position.z >= sector.bounds.min.z && position.z <= sector.bounds.max.z
+  ));
+  if (direct) return direct;
+  return sectorDefinitions.reduce((nearest, sector) => {
+    const centerX = (sector.bounds.min.x + sector.bounds.max.x) / 2;
+    const centerZ = (sector.bounds.min.z + sector.bounds.max.z) / 2;
+    const distance = Math.hypot(position.x - centerX, position.z - centerZ);
+    return distance < nearest.distance ? { sector, distance } : nearest;
+  }, { sector: sectorDefinitions[0], distance: Infinity }).sector;
+}
+
+function routeFor(position) {
+  const route = manifest.records
+    .filter((record) => record.category === 'route')
+    .map((record) => {
+      const dx = Math.max(Math.abs(position.x - record.position.x) - record.size.x / 2, 0);
+      const dz = Math.max(Math.abs(position.z - record.position.z) - record.size.z / 2, 0);
+      return { record, distance: Math.hypot(dx, dz) };
+    })
+    .sort((a, b) => a.distance - b.distance)[0];
+  return route && route.distance <= grid.cellSize * 1.15 ? route.record.name.toUpperCase() : 'OFF-ROAD';
 }
 
 function makeProceduralMaterial(key) {
@@ -160,22 +212,15 @@ function makeProceduralMaterial(key) {
 
 function makeLabel(text, color = '#7be6d0', scale = 0.8) {
   const labelCanvas = document.createElement('canvas');
-  labelCanvas.width = 512;
-  labelCanvas.height = 96;
-  const context = labelCanvas.getContext('2d');
-  context.font = '800 30px ui-monospace, monospace';
-  context.fillStyle = color;
-  context.strokeStyle = 'rgba(3, 10, 12, .85)';
-  context.lineWidth = 8;
-  context.strokeText(text, 12, 54);
-  context.fillText(text, 12, 54);
+  labelCanvas.width = 640;
+  labelCanvas.height = 128;
   const texture = new THREE.CanvasTexture(labelCanvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false }));
-  sprite.scale.set(scale * 5.2, scale, 1);
-  sprite.userData.labelText = text;
+  sprite.scale.set(scale * 5.6, scale * 1.1, 1);
   sprite.userData.labelColor = color;
   sprite.userData.labelScale = scale;
+  updateLabel(sprite, text);
   return sprite;
 }
 
@@ -185,12 +230,20 @@ function updateLabel(sprite, text) {
   if (!canvas) return;
   const context = canvas.getContext('2d');
   context.clearRect(0, 0, canvas.width, canvas.height);
-  context.font = '800 30px ui-monospace, monospace';
+  const [primary, secondary = ''] = text.split(' · ');
+  context.fillStyle = 'rgba(3, 10, 12, .86)';
+  context.strokeStyle = 'rgba(123, 230, 208, .22)';
+  context.lineWidth = 3;
+  context.beginPath();
+  context.roundRect(8, 8, canvas.width - 16, canvas.height - 16, 16);
+  context.fill();
+  context.stroke();
+  context.font = '800 23px ui-monospace, monospace';
   context.fillStyle = sprite.userData.labelColor;
-  context.strokeStyle = 'rgba(3, 10, 12, .85)';
-  context.lineWidth = 8;
-  context.strokeText(text, 12, 54);
-  context.fillText(text, 12, 54);
+  context.fillText(primary.slice(0, 31), 24, 48);
+  context.font = '700 27px ui-monospace, monospace';
+  context.fillStyle = '#dffaf2';
+  context.fillText((secondary || primary).slice(0, 27), 24, 91);
   texture.needsUpdate = true;
   sprite.userData.labelText = text;
 }
@@ -219,12 +272,78 @@ function styleAsset(group, record) {
   });
   objectRoot.add(group);
   meshes.set(record.id, group);
+  const collisionProxy = new THREE.LineSegments(
+    new THREE.EdgesGeometry(new THREE.BoxGeometry(record.size.x, record.size.y, record.size.z)),
+    new THREE.LineBasicMaterial({ color: record.solid ? '#ffbd69' : '#7be6d0', transparent: true, opacity: 0.72, depthTest: false })
+  );
+  collisionProxy.position.set(record.position.x, record.position.y, record.position.z);
+  collisionProxy.name = `${record.id}::collision-proxy`;
+  collisionProxy.userData.recordId = record.id;
+  collisionProxy.userData.grid = addressFor(record.position);
+  collisionRoot.add(collisionProxy);
+  collisionProxies.set(record.id, collisionProxy);
+  createLandmarkTreatment(record);
   const labelColor = record.category === 'boss' ? '#ff947d' : record.category === 'mech' ? '#ffbd69' : '#7be6d0';
   const label = makeLabel(`${record.id} · ${addressFor(record.position)}`, labelColor, record.category === 'boss' ? 0.95 : record.category === 'mech' ? 0.86 : 0.62);
   label.position.set(record.position.x, record.position.y + record.size.y / 2 + 1.3, record.position.z);
   label.userData.recordId = record.id;
   labels.set(record.id, label);
   inspectionRoot.add(label);
+}
+
+function createLandmarkTreatment(record) {
+  const landmarkTypes = new Set(['radio-tower', 'settlement-gate', 'water-cistern', 'food-garden', 'mech-bay', 'field-outpost']);
+  if (record.category !== 'landmark' && record.category !== 'outpost' && record.category !== 'boss' && !landmarkTypes.has(record.semanticType)) return;
+  const color = record.category === 'boss' ? '#ff806c' : record.semanticType === 'mech-bay' ? '#ffbd69' : '#7be6d0';
+  const treatment = new THREE.Group();
+  treatment.position.set(record.position.x, record.position.y, record.position.z);
+  treatment.userData.recordId = record.id;
+  const radius = Math.max(record.size.x, record.size.z) * 0.62 + 1.2;
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(radius * 0.78, radius, 48),
+    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.22, side: THREE.DoubleSide, depthWrite: false })
+  );
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = -record.size.y / 2 + 0.1;
+  ring.userData.pulsePhase = [...record.id].reduce((sum, character) => sum + character.charCodeAt(0), 0) % 17;
+  treatment.add(ring);
+  const beacon = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.035, 0.035, record.category === 'boss' ? 4.5 : 2.4, 8),
+    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: record.category === 'boss' ? 0.24 : 0.14, depthWrite: false })
+  );
+  beacon.position.y = record.category === 'boss' ? 2.4 : 1.3;
+  treatment.add(beacon);
+  worldRoot.add(treatment);
+  landmarkTreatments.set(record.id, { treatment, ring, beacon });
+}
+
+function updateSelectionVisual(record) {
+  selectedVisual?.removeFromParent();
+  selectedVisual = null;
+  if (!record) return;
+  const color = record.category === 'boss' ? '#ff947d' : record.category === 'mech' ? '#ffbd69' : '#7be6d0';
+  const visual = new THREE.Group();
+  const frame = new THREE.LineSegments(
+    new THREE.EdgesGeometry(new THREE.BoxGeometry(record.size.x + 0.8, record.size.y + 0.8, record.size.z + 0.8)),
+    new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.9, depthTest: false })
+  );
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(Math.max(record.size.x, record.size.z) * 0.54, Math.max(record.size.x, record.size.z) * 0.61, 40),
+    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.48, side: THREE.DoubleSide, depthTest: false })
+  );
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = -record.size.y / 2 + 0.14;
+  visual.add(frame, ring);
+  visual.userData.recordId = record.id;
+  selectionRoot.add(visual);
+  selectedVisual = visual;
+  syncSelectionVisual();
+}
+
+function syncSelectionVisual() {
+  if (!selectedVisual || !selectedId) return;
+  const mesh = meshes.get(selectedId);
+  if (mesh) selectedVisual.position.copy(mesh.position);
 }
 
 function createStructure(record) {
@@ -373,23 +492,75 @@ function createAsset(record) {
 }
 
 function createGround() {
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(160, 128), makeProceduralMaterial('saltGround'));
+  const groundMaterial = makeProceduralMaterial('saltGround').clone();
+  groundMaterial.map?.repeat.set(Math.max(2, worldBounds.width / 48), Math.max(2, worldBounds.depth / 48));
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(worldBounds.width, worldBounds.depth), groundMaterial);
   ground.rotation.x = -Math.PI / 2;
-  ground.position.set(0, -0.08, 0);
+  ground.position.set(worldBounds.centerX, -0.08, worldBounds.centerZ);
   ground.receiveShadow = true;
   ground.name = 'GROUND-SALTGLASS-BASIN';
   worldRoot.add(ground);
 }
 
 function createGrid() {
-  const size = grid.sceneBounds.max.x - grid.sceneBounds.min.x;
-  const divisions = size / grid.cellSize;
-  const helper = new THREE.GridHelper(size, divisions, '#78e6d0', '#274d4d');
-  helper.position.set((grid.sceneBounds.min.x + grid.sceneBounds.max.x) / 2, 0.02, (grid.sceneBounds.min.z + grid.sceneBounds.max.z) / 2);
-  helper.material.transparent = true;
-  helper.material.opacity = 0.3;
-  helper.material.depthTest = false;
+  const vertices = [];
+  for (let x = worldBounds.minX; x <= worldBounds.maxX; x += grid.cellSize) vertices.push(x, 0.02, worldBounds.minZ, x, 0.02, worldBounds.maxZ);
+  for (let z = worldBounds.minZ; z <= worldBounds.maxZ; z += grid.cellSize) vertices.push(worldBounds.minX, 0.02, z, worldBounds.maxX, 0.02, z);
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+  const helper = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ color: '#78e6d0', transparent: true, opacity: 0.3, depthTest: false }));
   inspectionRoot.add(helper);
+}
+
+function createWorldDressing() {
+  for (const sector of sectorDefinitions) {
+    const sectorWidth = sector.bounds.max.x - sector.bounds.min.x;
+    const sectorDepth = sector.bounds.max.z - sector.bounds.min.z;
+    const centerX = (sector.bounds.min.x + sector.bounds.max.x) / 2;
+    const centerZ = (sector.bounds.min.z + sector.bounds.max.z) / 2;
+    const wash = new THREE.Mesh(
+      new THREE.PlaneGeometry(sectorWidth - 2.4, sectorDepth - 2.4),
+      new THREE.MeshBasicMaterial({ color: sector.color, transparent: true, opacity: 0.045, depthWrite: false })
+    );
+    wash.rotation.x = -Math.PI / 2;
+    wash.position.set(centerX, -0.045, centerZ);
+    worldRoot.add(wash);
+
+    const sectorBorder = new THREE.LineLoop(
+      new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(centerX - sectorWidth / 2 + 1.2, 0.01, centerZ - sectorDepth / 2 + 1.2),
+        new THREE.Vector3(centerX + sectorWidth / 2 - 1.2, 0.01, centerZ - sectorDepth / 2 + 1.2),
+        new THREE.Vector3(centerX + sectorWidth / 2 - 1.2, 0.01, centerZ + sectorDepth / 2 - 1.2),
+        new THREE.Vector3(centerX - sectorWidth / 2 + 1.2, 0.01, centerZ + sectorDepth / 2 - 1.2)
+      ]),
+      new THREE.LineBasicMaterial({ color: sector.color, transparent: true, opacity: 0.16, depthTest: false })
+    );
+    worldRoot.add(sectorBorder);
+
+    const label = makeLabel(`SECTOR · ${sector.name ?? sector.id}`, sector.color, 0.5);
+    label.position.set(centerX, 0.28, centerZ);
+    label.userData.sectorId = sector.id;
+    sectorLabels.push(label);
+    inspectionRoot.add(label);
+  }
+
+  const routeMaterial = new THREE.MeshBasicMaterial({ color: '#d0a671', transparent: true, opacity: 0.16, depthWrite: false });
+  const routeEdgeMaterial = new THREE.MeshBasicMaterial({ color: '#f0c27b', transparent: true, opacity: 0.3, depthWrite: false });
+  const routeRecords = manifest.records.filter((record) => record.category === 'route');
+  for (const route of routeRecords) {
+    const routeMesh = new THREE.Mesh(new THREE.PlaneGeometry(route.size.x, route.size.z), routeMaterial);
+    routeMesh.rotation.x = -Math.PI / 2;
+    routeMesh.position.set(route.position.x, -0.03, route.position.z);
+    worldRoot.add(routeMesh);
+    const edge = new THREE.Mesh(new THREE.PlaneGeometry(route.size.x + 0.28, route.size.z + 0.28), routeEdgeMaterial);
+    edge.rotation.x = -Math.PI / 2;
+    edge.position.set(route.position.x, -0.025, route.position.z);
+    worldRoot.add(edge);
+    const label = makeLabel(`ROUTE · ${route.name}`, '#f0c27b', 0.46);
+    label.position.set(route.position.x, 0.25, route.position.z);
+    sectorLabels.push(label);
+    inspectionRoot.add(label);
+  }
 }
 
 function createPlayerMesh(color) {
@@ -468,6 +639,9 @@ function validateWorld() {
     ids.add(record.id);
     if (!record.semanticType || !record.materialKey) issues.push(`incomplete ${record.id}`);
     if (record.position.y - record.size.y / 2 < -0.001) issues.push(`below ground ${record.id}`);
+    if (record.position.x - record.size.x / 2 < grid.sceneBounds.min.x || record.position.x + record.size.x / 2 > grid.sceneBounds.max.x || record.position.z - record.size.z / 2 < grid.sceneBounds.min.z || record.position.z + record.size.z / 2 > grid.sceneBounds.max.z) {
+      issues.push(`collision outside scene bounds ${record.id}`);
+    }
   }
   return { status: issues.length ? 'ISSUES' : 'VALIDATED', issues };
 }
@@ -482,14 +656,20 @@ function setPlayerCount(count) {
 
 function updateSelection(record) {
   selectedId = record?.id ?? null;
+  updateSelectionVisual(record);
   const card = document.querySelector('#selected-card');
   card.hidden = !record;
-  if (!record) return;
+  if (!record) {
+    card.removeAttribute('aria-label');
+    return;
+  }
   document.querySelector('#selected-title').textContent = record.name;
   document.querySelector('#selected-description').textContent = `${record.semanticType} · ${record.category} · ${record.materialParts.join(', ')}`;
   document.querySelector('#selected-id').textContent = record.id;
   document.querySelector('#selected-grid').textContent = addressFor(record.position);
+  document.querySelector('#selected-sector').textContent = sectorFor(record.position).id;
   document.querySelector('#selected-material').textContent = record.materialKey;
+  card.setAttribute('aria-label', `Selected ${record.name}, ${addressFor(record.position)}`);
 }
 
 function updateReadouts(force = false, now = performance.now()) {
@@ -515,6 +695,8 @@ function updateWorldReadout(force = false) {
   if (!force && address === lastWorldAddress) return;
   lastWorldAddress = address;
   setText(ui.world, address);
+  setText(ui.sector, sectorFor(localPlayer.position).id);
+  setText(ui.route, routeFor(localPlayer.position));
 }
 
 function announce(message) {
@@ -734,6 +916,11 @@ function updateRoamingAgents() {
       z: base.z + Math.cos(worldState.elapsed * 0.36 + phase) * radius
     };
     mesh.position.set(nextPosition.x, nextPosition.y, nextPosition.z);
+    const collisionProxy = collisionProxies.get(record.id);
+    if (collisionProxy) {
+      collisionProxy.position.set(nextPosition.x, nextPosition.y, nextPosition.z);
+      collisionProxy.userData.grid = addressFor(nextPosition);
+    }
     record.position = nextPosition;
     mesh.userData.grid = addressFor(nextPosition);
     const label = labels.get(record.id);
@@ -748,6 +935,20 @@ function updateRoamingAgents() {
 function updateWorld(delta) {
   worldState.elapsed += delta;
   updateRoamingAgents();
+  syncSelectionVisual();
+  if (selectedId) {
+    const selected = records.get(selectedId);
+    if (selected) {
+      setText(document.querySelector('#selected-grid'), addressFor(selected.position));
+      setText(document.querySelector('#selected-sector'), sectorFor(selected.position).id);
+    }
+  }
+  for (const { ring, beacon } of landmarkTreatments.values()) {
+    const phase = ring.userData.pulsePhase ?? 0;
+    const pulse = 0.82 + Math.sin(worldState.elapsed * 1.5 + phase) * 0.18;
+    ring.material.opacity = 0.22 * pulse;
+    beacon.material.opacity = 0.14 * pulse;
+  }
   updateReadouts();
 }
 
@@ -756,6 +957,11 @@ function toggleInspection() {
   inspectionRoot.visible = inspection;
   document.querySelector('#mode-readout').textContent = inspection ? 'INSPECT' : 'BEAUTY';
   document.querySelector('#inspection-toggle').textContent = inspection ? 'Beauty mode' : 'Inspection mode';
+  document.querySelector('#inspection-toggle').setAttribute('aria-pressed', String(inspection));
+  setText(document.querySelector('#inspection-hint'), inspection
+    ? 'INSPECT · grid cells, sector routes, IDs, and selectable bounds are visible.'
+    : 'BEAUTY · explore the basin, then switch modes to see the spatial layer.');
+  document.body.classList.toggle('inspection-active', inspection);
   showToast(inspection ? 'Inspection layer enabled' : 'Beauty layer enabled');
 }
 
@@ -845,6 +1051,11 @@ function setEntityPosition(record, position) {
     mesh.position.set(record.position.x, record.position.y, record.position.z);
     mesh.userData.grid = addressFor(record.position);
   }
+  const collisionProxy = collisionProxies.get(record.id);
+  if (collisionProxy) {
+    collisionProxy.position.set(record.position.x, record.position.y, record.position.z);
+    collisionProxy.userData.grid = addressFor(record.position);
+  }
   const label = labels.get(record.id);
   if (label) {
     label.position.set(record.position.x, record.position.y + record.size.y / 2 + 1.3, record.position.z);
@@ -861,6 +1072,7 @@ function syncEntityCollection(entities = []) {
     setEntityPosition(record, entity.position);
     const visible = !inactive.has(entity.status);
     meshes.get(record.id)?.traverse((child) => { child.visible = visible; });
+    if (collisionProxies.has(record.id)) collisionProxies.get(record.id).visible = visible;
     const label = labels.get(record.id);
     if (label) label.visible = visible;
   }
@@ -899,6 +1111,7 @@ function syncMechCollection(mechs = []) {
     setEntityPosition(record, entity.position);
     const visible = !inactive.has(entity.status);
     meshes.get(record.id)?.traverse((child) => { child.visible = visible; });
+    if (collisionProxies.has(record.id)) collisionProxies.get(record.id).visible = visible;
     const label = labels.get(record.id);
     if (label) label.visible = visible;
     if (entity.pilotId === localPlayer.id) localPlayer.mechId = entity.id;
@@ -934,6 +1147,7 @@ function syncConstructionCollection(constructions = []) {
     setEntityPosition(record, construction.position);
     const visible = construction.status !== 'destroyed';
     meshes.get(record.id)?.traverse((child) => { child.visible = visible; });
+    if (collisionProxies.has(record.id)) collisionProxies.get(record.id).visible = visible;
     const label = labels.get(record.id);
     if (label) label.visible = visible;
   }
@@ -1135,6 +1349,7 @@ function handleVisibilityChange() {
 
 createGround();
 createGrid();
+createWorldDressing();
 for (const record of records.values()) createAsset(record);
 inspectionRoot.visible = false;
 const validation = validateWorld();

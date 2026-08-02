@@ -4,7 +4,7 @@ import { createWorld } from './world-state.mjs';
 
 test('settlement interactions are authoritative and range-gated', () => {
   const world = createWorld();
-  world.enqueue({ type: 'player.join', playerId: 'p1', position: { x: -24, y: 0.9, z: -16 } });
+  world.enqueue({ type: 'player.join', playerId: 'p1', position: { x: -64, y: 0.9, z: -24 } });
   world.step();
   const before = world.snapshot().settlement;
   world.enqueue({ type: 'player.interact', playerId: 'p1', recordId: 'RELAY-TOWER-0001' });

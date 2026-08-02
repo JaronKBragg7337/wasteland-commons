@@ -33,6 +33,8 @@ test('fixed steps and snapshots are deterministic for the same command stream', 
   second.step(20);
   assert.deepEqual(first.snapshot(), second.snapshot());
   assert.equal(first.snapshot().tick, 20);
+  assert.deepEqual(first.snapshot().bounds, { minX: -160, maxX: 160, minZ: -128, maxZ: 128 });
+  assert.equal(first.snapshot().worldContract.gridCellSizeMeters, 4);
   assert.doesNotThrow(() => JSON.parse(first.serializeSnapshot()));
 });
 
@@ -65,8 +67,8 @@ test('entities, vehicle authority, construction, and NPC production are authorit
   const snapshot = world.snapshot();
   assert.equal(byId(snapshot, 'vehicles', 'truck-1').driverId, 'p1');
   assert.equal(byId(snapshot, 'vehicles', 'truck-1').position.x, 0.4);
-  assert.equal(byId(snapshot, 'constructions', 'wall-1').position.x, 3);
-  assert.equal(byId(snapshot, 'constructions', 'wall-1').position.z, 3);
+  assert.equal(byId(snapshot, 'constructions', 'wall-1').position.x, 4);
+  assert.equal(byId(snapshot, 'constructions', 'wall-1').position.z, 4);
   world.step(8);
   assert.equal(byId(world.snapshot(), 'constructions', 'wall-1').status, 'complete');
   world.step(9);

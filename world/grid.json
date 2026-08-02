@@ -6,15 +6,16 @@
   "eastAxis": "+X",
   "cellSize": 4,
   "levelHeight": 3,
-  "origin": { "x": -80, "y": 0, "z": -64 },
+  "origin": { "x": -160, "y": 0, "z": -128 },
   "levelPrefix": "L",
   "columnPrefix": "H",
   "rowPrefix": "R",
   "columnAxis": "worldX",
   "rowAxis": "worldZ",
+  "worldSize": { "x": 320, "z": 256 },
+  "gridDimensions": { "columns": 80, "rows": 64 },
   "sceneBounds": {
-    "min": { "x": -80, "y": 0, "z": -64 },
-    "max": { "x": 80, "y": 36, "z": 64 }
+    "min": { "x": -160, "y": 0, "z": -128 },
+    "max": { "x": 160, "y": 36, "z": 128 }
   }
 }
-

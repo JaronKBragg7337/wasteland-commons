@@ -1,9 +1,45 @@
+import { createHash } from 'node:crypto';
+import grid from '../../world/grid.json' with { type: 'json' };
+import manifest from '../../world/manifest.json' with { type: 'json' };
+
+const WORLD_BOUNDS = Object.freeze({
+  minX: grid.sceneBounds.min.x,
+  maxX: grid.sceneBounds.max.x,
+  minZ: grid.sceneBounds.min.z,
+  maxZ: grid.sceneBounds.max.z,
+});
+const WORLD_MANIFEST = new Map(manifest.records.map((record) => [record.id, record]));
+const WORLD_MANIFEST_HASH = createHash('sha256').update(JSON.stringify(manifest)).digest('hex');
+
+const STATIC_INTERACTIONS = Object.freeze({
+  'RELAY-TOWER-0001': { system: 'signal', power: 10, morale: 5 },
+  'WATER-CISTERN-0001': { water: 20 },
+  'COMMUNITY-GARDEN-0001': { food: 10, morale: 2 },
+  'ROBOT-FRIENDLY-0001': { morale: 4 },
+  'ROBOT-TRADER-0001': { morale: 4, scrap: 4 },
+});
+
+function interactionFor(recordId) {
+  const record = WORLD_MANIFEST.get(recordId);
+  if (!record) return null;
+  if (STATIC_INTERACTIONS[recordId]) return { record, ...STATIC_INTERACTIONS[recordId] };
+  const semanticType = String(record.semanticType ?? '').toLowerCase();
+  if (record.category === 'robot' && semanticType.includes('friendly')) return { record, morale: 4 };
+  if (semanticType.includes('water') || semanticType.includes('cistern') || semanticType.includes('purifier')) return { record, water: 15 };
+  if (semanticType.includes('garden') || semanticType.includes('farm') || semanticType.includes('food')) return { record, food: 8, morale: 1 };
+  if (semanticType.includes('outpost') || semanticType.includes('beacon')) return { record, power: 3, morale: 2 };
+  if (semanticType.includes('signal') || semanticType.includes('relay') || semanticType.includes('terminal')) return { record, system: 'signal', power: 5 };
+  if (semanticType.includes('generator') || semanticType.includes('fabricator') || semanticType.includes('workshop')) return { record, power: 8, scrap: 2 };
+  if (semanticType.includes('salvage') || semanticType.includes('depot') || semanticType.includes('ruin')) return { record, scrap: 6 };
+  return null;
+}
+
 const DEFAULT_RULES = Object.freeze({
   tickRate: 20,
   commandDedupeTicks: 12_000,
   commandDedupeMaxEntries: 50_000,
-  bounds: Object.freeze({ minX: -80, maxX: 80, minZ: -64, maxZ: 64 }),
-  gridSize: 1,
+  bounds: WORLD_BOUNDS,
+  gridSize: grid.cellSize,
   maxPlayers: 4,
   playerSpeed: 3,
   sprintSpeed: 5,
@@ -237,6 +273,12 @@ export class WorldState {
       snapshotId: `${this.worldId}:${this.state.revision}`,
       worldId: this.worldId,
       worldSeed: this.worldSeed,
+      worldContract: {
+        sceneId: manifest.sceneId,
+        manifestHash: WORLD_MANIFEST_HASH,
+        manifestRecordCount: manifest.records.length,
+        gridCellSizeMeters: grid.cellSize,
+      },
       tickRate: this.rules.tickRate,
       tick: this.state.tick,
       revision: this.state.revision,
@@ -392,18 +434,13 @@ export class WorldState {
   #playerInteract(command) {
     const player = this.state.players.get(command.playerId);
     if (!player || player.status !== 'active') return this.#reject(command, 'active player not found');
-    const effects = {
-      'RELAY-TOWER-0001': { position: { x: -24, z: -16 }, morale: 5, power: 10, system: 'signal' },
-      'WATER-CISTERN-0001': { position: { x: -36, z: 2 }, water: 20 },
-      'COMMUNITY-GARDEN-0001': { position: { x: 4, z: 30 }, food: 10, morale: 2 },
-      'ROBOT-FRIENDLY-0001': { position: { x: 8, z: 12 }, morale: 4 },
-      'ROBOT-TRADER-0001': { position: { x: -8, z: 5 }, morale: 4, scrap: 4 },
-    }[command.recordId];
+    const interaction = interactionFor(command.recordId);
+    const effects = interaction ? { ...interaction, position: interaction.record.position } : null;
     if (!effects) return this.#reject(command, 'record is not interactable');
     if (horizontalDistance(player.position, effects.position) > 9) return this.#reject(command, 'record out of reach');
     const resources = this.state.settlement.resources;
     for (const [resource, amount] of Object.entries(effects)) {
-      if (resource === 'position' || resource === 'system' || resource === 'morale') continue;
+      if (resource === 'record' || resource === 'position' || resource === 'system' || resource === 'morale') continue;
       resources[resource] = Math.max(0, quantize((resources[resource] ?? 0) + amount));
     }
     if (effects.morale) this.state.settlement.morale = clamp(quantize(Number(this.state.settlement.morale ?? 58) + effects.morale), 0, 100);

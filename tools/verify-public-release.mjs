@@ -2,6 +2,7 @@ import WebSocket from 'ws';
 
 const baseUrl = String(process.env.PUBLIC_GAME_URL ?? 'https://wasteland-commons.vercel.app').replace(/\/$/, '');
 const healthUrl = `${baseUrl}/api/health`;
+const manifestUrl = `${baseUrl}/api/manifest`;
 const expectedRelayUrl = String(process.env.PUBLIC_RELAY_URL ?? `${baseUrl.replace(/^http/i, 'ws')}/api/ws`);
 const waitMs = Number(process.env.PUBLIC_VERIFY_WAIT_MS ?? 1_500);
 const sockets = [];
@@ -45,6 +46,9 @@ try {
   const healthResponse = await fetch(healthUrl);
   if (!healthResponse.ok) throw new Error(`health endpoint returned HTTP ${healthResponse.status}`);
   const health = await healthResponse.json();
+  const manifestResponse = await fetch(manifestUrl);
+  if (!manifestResponse.ok) throw new Error(`manifest endpoint returned HTTP ${manifestResponse.status}`);
+  const publicManifest = await manifestResponse.json();
   sessions = await Promise.all([connectClient(0), connectClient(1)]);
   await delay(waitMs);
 
@@ -54,6 +58,11 @@ try {
     .find((snapshot) => playerIds.every((id) => snapshot.players.some((player) => player.id === id)));
   const result = {
     health,
+    publicManifest: {
+      release: publicManifest.release,
+      license: publicManifest.license,
+      scene: publicManifest.scene,
+    },
     relay: expectedRelayUrl,
     clients: sessions.map(({ welcome, snapshots }) => ({
       playerId: welcome.playerId,

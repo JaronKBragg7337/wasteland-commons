@@ -45,7 +45,7 @@ The world feels like a giant wasteland through connected routes, landmarks, alte
 | --- | --- |
 | Players | 2–4 online co-op players; drop-in and reconnect support |
 | Platforms | PC, iPhone, and Android with shared sessions |
-| World | One settlement, three connected wasteland sectors, and two boss sites |
+| World | A 320m × 256m authored region, one settlement, three connected wasteland sectors, and two boss sites |
 | Session | A useful outing can take 15–30 minutes; a full first clear can fit into several sessions |
 | Community | One main settlement with a small number of expandable field outposts |
 | Vehicles | Two drivable frames: a fast scout runner and a slower cargo rover |

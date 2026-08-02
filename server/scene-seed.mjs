@@ -1,9 +1,12 @@
 import manifest from '../world/manifest.json' with { type: 'json' };
 
-const hostileRobotIds = new Set(['ROBOT-HOSTILE-0001']);
+const hostileRobotIds = new Set(manifest.records.filter((record) => record.category === 'robot' && record.semanticType === 'hostile-robot').map((record) => record.id));
+const neutralRobotIds = new Set(manifest.records.filter((record) => record.category === 'robot' && record.semanticType === 'neutral-robot').map((record) => record.id));
 const vehicleKinds = new Map([
   ['VEHICLE-BUGGY-0001', 'scout'],
   ['VEHICLE-CARGO-0001', 'cargo'],
+  ['VEHICLE-SCOUT-RELAY-0001', 'scout'],
+  ['VEHICLE-CARGO-OUTPOST-0001', 'cargo'],
 ]);
 const mechLoadouts = new Map([
   ['MECH-SUIT-COMMONS-0001', [
@@ -23,7 +26,9 @@ export function createSceneSeedCommands() {
         type: 'robot.spawn',
         robotId: record.id,
         model: record.semanticType,
-        disposition: hostileRobotIds.has(record.id) ? 'hostile' : 'helpful',
+        disposition: hostileRobotIds.has(record.id)
+          ? 'hostile'
+          : neutralRobotIds.has(record.id) ? 'neutral' : 'helpful',
         position: record.position,
       });
     }
@@ -31,7 +36,9 @@ export function createSceneSeedCommands() {
       commands.push({
         type: 'undead.spawn',
         undeadId: record.id,
-        kind: record.semanticType === 'undead-hive' ? 'buried' : 'drifter',
+        kind: record.semanticType.includes('runner')
+          ? 'runner'
+          : record.semanticType.includes('buried') || record.semanticType === 'undead-hive' ? 'buried' : 'drifter',
         position: record.position,
       });
     }
@@ -66,6 +73,8 @@ export function createSceneSeedCommands() {
     { id: 'NPC-SCAVENGER-0001', name: 'Ivo', role: 'scavenger', position: { x: -4, y: 0.9, z: 20 } },
     { id: 'NPC-MECHANIC-0001', name: 'Sable', role: 'mechanic', position: { x: -14, y: 0.9, z: 22 } },
     { id: 'NPC-GUARD-0001', name: 'Kestrel', role: 'guard', position: { x: -40, y: 0.9, z: 10 } },
+    { id: 'NPC-MEDIC-0001', name: 'Jun', role: 'medic', position: { x: -52, y: 0.9, z: 18 } },
+    { id: 'NPC-BUILDER-0001', name: 'Orin', role: 'builder', position: { x: 4, y: 0.9, z: -40 } },
   ];
   for (const npc of npcPositions) commands.push({ type: 'npc.spawn', npcId: npc.id, ...npc });
   return commands;

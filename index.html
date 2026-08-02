@@ -26,8 +26,13 @@
           <span><small>CHECK</small><b id="validation-readout">READY</b></span>
         </div>
         <div class="action-row">
-          <button id="inspection-toggle" class="button primary" type="button">Inspection mode</button>
+          <button id="inspection-toggle" class="button primary" type="button" aria-pressed="false">Inspection mode</button>
           <button id="connect-button" class="button" type="button">Join world</button>
+        </div>
+        <p id="inspection-hint" class="inspection-hint">BEAUTY · explore the basin, then switch modes to see the spatial layer.</p>
+        <div class="location-strip" aria-label="Current location">
+          <span><small>SECTOR</small><b id="sector-readout">COMMONS BELT</b></span>
+          <span><small>ROUTE</small><b id="route-readout">OFF-ROAD</b></span>
         </div>
         <div class="survival-grid" aria-label="Community status">
           <span><small>WATER</small><b id="water-readout">72%</b></span>
@@ -46,7 +51,7 @@
           <div class="selected-heading"><span>SELECTED RECORD</span><button id="clear-selection" type="button">×</button></div>
           <h2 id="selected-title">Nothing selected</h2>
           <p id="selected-description">Tap or click an object to inspect its spatial record.</p>
-          <div class="selected-meta"><span><small>ID</small><b id="selected-id">—</b></span><span><small>GRID</small><b id="selected-grid">—</b></span><span><small>MATERIAL</small><b id="selected-material">—</b></span></div>
+          <div class="selected-meta"><span><small>ID</small><b id="selected-id">—</b></span><span><small>GRID</small><b id="selected-grid">—</b></span><span><small>SECTOR</small><b id="selected-sector">—</b></span><span><small>MATERIAL</small><b id="selected-material">—</b></span></div>
         </div>
         <details class="help-panel">
           <summary>Controls</summary>

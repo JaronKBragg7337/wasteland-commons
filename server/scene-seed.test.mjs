@@ -8,7 +8,9 @@ test('scene seed is deterministic and covers the live ecosystem', () => {
   assert.deepEqual(first, second);
   assert.ok(first.some((command) => command.type === 'robot.spawn' && command.disposition === 'hostile'));
   assert.ok(first.some((command) => command.type === 'robot.spawn' && command.disposition === 'helpful'));
+  assert.ok(first.some((command) => command.type === 'robot.spawn' && command.disposition === 'neutral'));
   assert.ok(first.some((command) => command.type === 'undead.spawn'));
+  assert.ok(first.some((command) => command.type === 'undead.spawn' && command.kind === 'runner'));
   assert.ok(first.some((command) => command.type === 'vehicle.spawn' && command.kind === 'cargo'));
-  assert.equal(first.filter((command) => command.type === 'npc.spawn').length, 4);
+  assert.equal(first.filter((command) => command.type === 'npc.spawn').length, 6);
 });
