@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build:web": "node ../../tools/build-mobile-web.mjs",
-    "copy": "cap copy",
+    "copy": "node ../../tools/copy-mobile-web.mjs",
     "sync": "cap sync",
     "doctor": "cap doctor"
   },

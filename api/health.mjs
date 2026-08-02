@@ -1,8 +1,9 @@
 import grid from '../world/grid.json' with { type: 'json' };
 import manifest from '../world/manifest.json' with { type: 'json' };
+import { supabaseConfigured } from '../server/persistence/supabase-config.mjs';
 
 const release = 'saltglass-basin-2026-08-02';
-const sharedBackendConfigured = Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
+const sharedBackendConfigured = supabaseConfigured();
 
 export default function healthHandler(_request, response) {
   response.setHeader('content-type', 'application/json; charset=utf-8');
