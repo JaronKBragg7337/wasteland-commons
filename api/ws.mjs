@@ -78,6 +78,10 @@ wss.on('connection', (socket) => {
     else if (message.type === 'command' && message.command === 'enterVehicle') world.enqueue({ type: 'player.enterVehicle', commandId: commandIdFor(message, 'enter'), playerId, vehicleId: message.vehicleId });
     else if (message.type === 'command' && message.command === 'exitVehicle') world.enqueue({ type: 'player.exitVehicle', commandId: commandIdFor(message, 'exit'), playerId });
     else if (message.type === 'command' && message.command === 'boss.start') world.enqueue({ type: 'boss.start', commandId: commandIdFor(message, 'boss'), playerId, bossId: message.bossId, bossKey: message.bossKey, position: message.position });
+    else if (message.type === 'command' && message.command === 'mech.pilot') world.enqueue({ type: 'mech.pilot', commandId: commandIdFor(message, 'mech-pilot'), playerId, mechId: message.mechId });
+    else if (message.type === 'command' && message.command === 'mech.unpilot') world.enqueue({ type: 'mech.unpilot', commandId: commandIdFor(message, 'mech-unpilot'), playerId, mechId: message.mechId });
+    else if (message.type === 'command' && message.command === 'mech.installModule') world.enqueue({ type: 'mech.installModule', commandId: commandIdFor(message, 'mech-install'), playerId, mechId: message.mechId, slot: message.slot, moduleKey: message.moduleKey });
+    else if (message.type === 'command' && message.command === 'mech.activate') world.enqueue({ type: 'mech.activate', commandId: commandIdFor(message, 'mech-activate'), playerId, mechId: message.mechId, action: message.action, targetId: message.targetId });
     else if (message.type === 'ping') send(socket, { type: 'pong', at: Date.now(), tick: snapshot().tick });
   });
   socket.on('close', () => { connections.delete(playerId); world.enqueue({ type: 'player.leave', commandId: `leave-${playerId}-${snapshot().tick}`, playerId }); });

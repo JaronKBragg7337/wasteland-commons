@@ -53,6 +53,7 @@ const localPlayer = {
   hasAuthoritativeState: false,
   lastAuthoritativeAt: 0,
   vehicleId: null,
+  mechId: null,
   speed: 7
 };
 const worldState = {
@@ -67,6 +68,11 @@ const worldState = {
   lastSnapshotRevision: -1,
   lastEventId: ''
 };
+const mechLoadout = [
+  { label: 'salvage arm', key: 'impact-tool', slot: 'right-arm' },
+  { label: 'arc shield', key: 'shield', slot: 'left-arm' },
+  { label: 'rail driver', key: 'ranged-weapon', slot: 'right-arm' }
+];
 let inspection = false;
 let selectedId = null;
 let socket = null;
@@ -213,7 +219,8 @@ function styleAsset(group, record) {
   });
   objectRoot.add(group);
   meshes.set(record.id, group);
-  const label = makeLabel(`${record.id} · ${addressFor(record.position)}`, record.category === 'boss' ? '#ff947d' : '#7be6d0', record.category === 'boss' ? 0.95 : 0.62);
+  const labelColor = record.category === 'boss' ? '#ff947d' : record.category === 'mech' ? '#ffbd69' : '#7be6d0';
+  const label = makeLabel(`${record.id} · ${addressFor(record.position)}`, labelColor, record.category === 'boss' ? 0.95 : record.category === 'mech' ? 0.86 : 0.62);
   label.position.set(record.position.x, record.position.y + record.size.y / 2 + 1.3, record.position.z);
   label.userData.recordId = record.id;
   labels.set(record.id, label);
@@ -335,11 +342,33 @@ function createBoss(record) {
   styleAsset(group, record);
 }
 
+function createMech(record) {
+  const group = new THREE.Group();
+  const armor = makeProceduralMaterial('mechPlate');
+  const shell = makeProceduralMaterial('robotShell');
+  const core = makeProceduralMaterial('glass').clone();
+  core.color.set('#7be6d0');
+  core.emissive.set('#176c5d');
+  core.emissiveIntensity = 2.8;
+  const scale = new THREE.Vector3(record.size.x / 6, record.size.y / 8, record.size.z / 6);
+  group.scale.copy(scale);
+  addPart(group, new THREE.BoxGeometry(2.4, 2.7, 1.7), armor, [0, 0.25, 0]);
+  addPart(group, new THREE.BoxGeometry(1.2, 1.15, 1.1), shell, [0, 2.15, 0]);
+  addPart(group, new THREE.BoxGeometry(0.62, 0.24, 0.12), core, [0, 2.15, 0.58]);
+  addPart(group, new THREE.BoxGeometry(0.82, 1.8, 1.05), armor, [-1.7, 0.25, 0]);
+  addPart(group, new THREE.BoxGeometry(0.82, 1.8, 1.05), armor, [1.7, 0.25, 0]);
+  addPart(group, new THREE.BoxGeometry(0.62, 2.7, 0.8), shell, [-0.72, -2.25, 0]);
+  addPart(group, new THREE.BoxGeometry(0.62, 2.7, 0.8), shell, [0.72, -2.25, 0]);
+  addPart(group, new THREE.CylinderGeometry(0.2, 0.2, 1.2, 12), core, [0, 0.2, 0.94], [Math.PI / 2, 0, 0]);
+  styleAsset(group, record);
+}
+
 function createAsset(record) {
   if (record.category === 'robot') return createRobot(record);
   if (record.category === 'creature') return createUndead(record);
   if (record.category === 'vehicle') return createVehicle(record);
   if (record.category === 'boss') return createBoss(record);
+  if (record.category === 'mech') return createMech(record);
   return createStructure(record);
 }
 
@@ -391,6 +420,7 @@ function syncLocalPlayerMesh() {
       z: localPlayer.position.z
     };
     local.mesh.position.copy(localPlayer.position);
+    local.mesh.visible = !localPlayer.mechId;
     return;
   }
   setPlayerMesh(localPlayer.id, {
@@ -546,6 +576,14 @@ function attackTarget() {
     const bossKey = target.id.includes('RELAY') ? 'relay-warden' : 'foundry-giant';
     socket.send(JSON.stringify({ type: 'command', command: 'boss.start', commandId: createCommandId('boss'), bossId: target.id, bossKey, position: target.position }));
   }
+  if (localPlayer.mechId && socket?.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({
+      type: 'command', command: 'mech.activate', commandId: createCommandId('mech-attack'),
+      mechId: localPlayer.mechId, action: 'attack', targetId: target.id
+    }));
+    announce(`Mech weapon fired at ${target.name} from ${addressFor(target.position)}.`);
+    return;
+  }
   const idempotencyKey = createCommandId('attack');
   const command = {
     type: 'command',
@@ -592,6 +630,8 @@ function interact() {
     } else {
       announce(`${record.name} is ready for a driver after reconnect.`);
     }
+  } else if (record.category === 'mech') {
+    cycleMech(record);
   } else if (record.category === 'boss') {
     worldState.morale = Math.max(0, worldState.morale - 3);
     announce(`${record.name} detected. Engage when the team is ready.`);
@@ -647,9 +687,36 @@ function buildCommunityModule() {
   if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'command', command: 'build', commandId: createCommandId('build'), record }));
 }
 
-function cycleMech() {
+function cycleMech(nearestMech = null) {
   worldState.mechModuleIndex = (worldState.mechModuleIndex + 1) % worldState.mechModules.length;
   updateReadouts(true);
+  const mech = nearestMech ?? [...records.values()]
+    .filter((record) => record.category === 'mech')
+    .sort((a, b) => a.position.x ** 2 + a.position.z ** 2 - (b.position.x ** 2 + b.position.z ** 2))[0];
+  if (!mech || !socket || socket.readyState !== WebSocket.OPEN) {
+    announce(`Mech loadout: ${worldState.mechModules[worldState.mechModuleIndex]}.`);
+    return;
+  }
+  const distance = meshes.get(mech.id)?.position.distanceTo(localPlayer.position) ?? Infinity;
+  if (distance > 8 && localPlayer.mechId !== mech.id) {
+    announce(`Move within eight meters of ${mech.name} to pilot it.`);
+    return;
+  }
+  if (localPlayer.mechId === mech.id) {
+    socket.send(JSON.stringify({ type: 'command', command: 'mech.unpilot', commandId: createCommandId('mech-unpilot'), mechId: mech.id }));
+    localPlayer.mechId = null;
+    syncLocalPlayerMesh();
+    announce('Exited the modular mech suit.');
+    return;
+  }
+  socket.send(JSON.stringify({ type: 'command', command: 'mech.pilot', commandId: createCommandId('mech-pilot'), mechId: mech.id }));
+  socket.send(JSON.stringify({
+    type: 'command', command: 'mech.installModule', commandId: createCommandId('mech-module'),
+    mechId: mech.id, moduleKey: mechLoadout[worldState.mechModuleIndex].key, slot: mechLoadout[worldState.mechModuleIndex].slot
+  }));
+  localPlayer.mechId = mech.id;
+  syncLocalPlayerMesh();
+  announce(`Piloting ${mech.name}. Equipped ${worldState.mechModules[worldState.mechModuleIndex]}.`);
 }
 
 function updateRoamingAgents() {
@@ -753,9 +820,13 @@ function applyPlayerList(list = []) {
     incoming.add(player.id);
     if (player.id === localPlayer.id) {
       localPlayer.vehicleId = player.vehicleId ?? null;
+      localPlayer.mechId = player.mechId ?? null;
       reconcileLocalPlayer(player);
+    } else {
+      setPlayerMesh(player.id, { ...player, color: player.color ?? '#ffbd69' });
+      const remote = players.get(player.id);
+      if (remote) remote.mesh.visible = !player.mechId;
     }
-    else setPlayerMesh(player.id, { ...player, color: player.color ?? '#ffbd69' });
   }
   for (const [id, entry] of players) {
     if (id !== localPlayer.id && !incoming.has(id)) {
@@ -792,6 +863,51 @@ function syncEntityCollection(entities = []) {
     meshes.get(record.id)?.traverse((child) => { child.visible = visible; });
     const label = labels.get(record.id);
     if (label) label.visible = visible;
+  }
+}
+
+function ensureMechRecord(entity) {
+  if (!entity?.id) return null;
+  let record = records.get(entity.id);
+  if (!record) {
+    record = {
+      id: entity.id,
+      name: 'Modular pilotable mech',
+      category: 'mech',
+      semanticType: 'modular-mech-suit',
+      position: { x: entity.position?.x ?? 0, y: entity.position?.y ?? 4, z: entity.position?.z ?? 0 },
+      size: { x: 6, y: 8, z: 6 },
+      materialKey: 'mechPlate',
+      materialParts: ['mechPlate', 'robotShell', 'glass'],
+      solid: false,
+    };
+    records.set(record.id, record);
+    basePositions.set(record.id, { ...record.position });
+    createAsset(record);
+  }
+  return record;
+}
+
+function syncMechCollection(mechs = []) {
+  const inactive = new Set(['destroyed', 'disabled']);
+  const incoming = new Set();
+  for (const entity of mechs) {
+    const record = ensureMechRecord(entity);
+    if (!record) continue;
+    incoming.add(record.id);
+    record.networkControlled = true;
+    setEntityPosition(record, entity.position);
+    const visible = !inactive.has(entity.status);
+    meshes.get(record.id)?.traverse((child) => { child.visible = visible; });
+    const label = labels.get(record.id);
+    if (label) label.visible = visible;
+    if (entity.pilotId === localPlayer.id) localPlayer.mechId = entity.id;
+  }
+  for (const record of records.values()) {
+    if (record.category !== 'mech' || incoming.has(record.id)) continue;
+    const label = labels.get(record.id);
+    if (label) label.visible = false;
+    meshes.get(record.id)?.traverse((child) => { child.visible = false; });
   }
 }
 
@@ -842,6 +958,7 @@ function applySnapshot(snapshot) {
   syncEntityCollection(snapshot?.undead);
   syncEntityCollection(snapshot?.vehicles);
   syncEntityCollection(snapshot?.bosses);
+  syncMechCollection(snapshot?.mechs);
   syncConstructionCollection(snapshot?.constructions);
   const resources = snapshot?.settlement?.resources;
   if (resources) {
@@ -904,6 +1021,7 @@ function connect({ manual = false } = {}) {
       worldState.lastEventId = '';
       applyPlayerList(message.players ?? []);
       applySnapshot(message.snapshot);
+      setText(ui.event, 'Connected to Saltglass Basin. Find the old relay station and bring the commons online.');
     }
     if (message.type === 'snapshot') {
       applySnapshot(message.snapshot);

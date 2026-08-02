@@ -7,6 +7,7 @@ const DEFAULT_RULES = Object.freeze({
   maxPlayers: 4,
   playerSpeed: 3,
   sprintSpeed: 5,
+  mechPilotRange: 4,
   vehicleSpeed: Object.freeze({ scout: 6, cargo: 4 }),
   construction: Object.freeze({
     foundation: Object.freeze({ buildTicks: 20, cost: Object.freeze({ scrap: 8, power: 0 }) }),
@@ -41,6 +42,7 @@ const KNOWN_COMMANDS = new Set([
   'npc.spawn', 'npc.assign', 'robot.spawn', 'undead.spawn',
   'vehicle.spawn', 'vehicle.drive',
   'construction.place', 'mech.create', 'mech.installModule', 'mech.activate',
+  'mech.pilot', 'mech.unpilot',
   'boss.start',
 ]);
 
@@ -324,6 +326,8 @@ export class WorldState {
       'mech.create': () => this.#createMech(command),
       'mech.installModule': () => this.#installModule(command),
       'mech.activate': () => this.#activateMech(command),
+      'mech.pilot': () => this.#pilotMech(command),
+      'mech.unpilot': () => this.#unpilotMech(command),
       'boss.start': () => this.#startBoss(command),
     }[command.type];
     this.state.activeCommand = command;
@@ -349,6 +353,7 @@ export class WorldState {
       stamina: 100,
       input: { x: 0, z: 0, sprint: false },
       vehicleId: null,
+      mechId: null,
       lastCommandSequence: command.sequence,
       status: 'active',
     });
@@ -359,6 +364,7 @@ export class WorldState {
     const player = this.state.players.get(command.playerId);
     if (!player) return this.#reject(command, 'player not found');
     if (player.vehicleId) this.#removePassenger(player.vehicleId, player.id);
+    if (player.mechId) this.#releaseMechPilot(this.state.mechs.get(player.mechId), { placePlayer: false });
     this.state.players.delete(player.id);
     this.#event('player.left', { playerId: player.id });
   }
@@ -368,6 +374,19 @@ export class WorldState {
     if (!player) return this.#reject(command, 'player not found');
     player.input = { ...normalizeDirection(command.direction), sprint: Boolean(command.sprint) };
     player.lastCommandSequence = command.sequence;
+    if (player.vehicleId) {
+      const vehicle = this.state.vehicles.get(player.vehicleId);
+      if (vehicle?.driverId === player.id && vehicle.status === 'active') {
+        vehicle.input = normalizeDirection(player.input);
+        vehicle.lastDriverCommand = command.sequence;
+      }
+    }
+    if (player.mechId) {
+      const mech = this.state.mechs.get(player.mechId);
+      if (mech?.pilotId === player.id && mech.status !== 'disabled') {
+        mech.input = normalizeDirection(player.input);
+      }
+    }
   }
 
   #playerInteract(command) {
@@ -412,6 +431,7 @@ export class WorldState {
     const vehicle = this.state.vehicles.get(command.vehicleId);
     if (!player || !vehicle) return this.#reject(command, 'player or vehicle not found');
     if (player.vehicleId) return this.#reject(command, 'player is already in a vehicle');
+    if (player.mechId) return this.#reject(command, 'player is piloting a mech');
     if (vehicle.status === 'disabled') return this.#reject(command, 'vehicle is disabled');
     if (horizontalDistance(player.position, vehicle.position) > 4) return this.#reject(command, 'vehicle is out of reach');
     if (vehicle.driverId === null) vehicle.driverId = player.id;
@@ -497,6 +517,44 @@ export class WorldState {
     vehicle.lastDriverCommand = command.sequence;
   }
 
+  #pilotMech(command) {
+    const player = this.state.players.get(command.playerId);
+    const mech = this.state.mechs.get(command.mechId);
+    if (!player || player.status !== 'active') return this.#reject(command, 'active player not found');
+    if (!mech) return this.#reject(command, 'mech not found');
+    if (player.vehicleId) return this.#reject(command, 'player is in a vehicle');
+    if (player.mechId) return this.#reject(command, 'player is already piloting a mech');
+    if (mech.pilotId) return this.#reject(command, 'mech is already occupied');
+    if (mech.status === 'disabled') return this.#reject(command, 'mech is disabled');
+    if (mech.status === 'overheated') return this.#reject(command, 'mech is overheated');
+    if (horizontalDistance(player.position, mech.position) > this.rules.mechPilotRange) {
+      return this.#reject(command, 'mech is out of reach');
+    }
+    mech.pilotId = player.id;
+    mech.status = 'piloted';
+    mech.input = { x: 0, z: 0 };
+    player.mechId = mech.id;
+    player.position = clone(mech.position);
+    player.velocity = { x: 0, y: 0, z: 0 };
+    player.input = { x: 0, z: 0, sprint: false };
+    this.#event('mech.piloted', { mechId: mech.id, playerId: player.id });
+  }
+
+  #unpilotMech(command) {
+    const player = this.state.players.get(command.playerId);
+    if (!player || player.status !== 'active') return this.#reject(command, 'active player not found');
+    if (!player.mechId) return this.#reject(command, 'player is not piloting a mech');
+    if (command.mechId !== undefined && command.mechId !== player.mechId) {
+      return this.#reject(command, 'player is piloting a different mech');
+    }
+    const mech = this.state.mechs.get(player.mechId);
+    if (!mech) return this.#reject(command, 'mech not found');
+    if (mech.pilotId !== player.id) return this.#reject(command, 'mech occupancy mismatch');
+    const mechId = mech.id;
+    this.#releaseMechPilot(mech);
+    this.#event('mech.unpiloted', { mechId, playerId: player.id });
+  }
+
   #placeConstruction(command) {
     const blueprint = this.rules.construction[command.blueprint];
     if (!blueprint || !BLUEPRINTS.has(command.blueprint)) return this.#reject(command, 'unknown construction blueprint');
@@ -524,7 +582,7 @@ export class WorldState {
     const id = this.requestedId('mech', command.mechId);
     if (this.state.mechs.has(id)) return this.#reject(command, 'mech id already exists');
     this.state.mechs.set(id, {
-      id, chassis: String(command.chassis ?? 'commons-01'), position: positionOf(command.position),
+      id, chassis: String(command.chassis ?? 'commons-01'), position: this.#clampPosition(positionOf(command.position)),
       status: 'parked', pilotId: null, health: 250, maxHealth: 250,
       energy: 50, energyMax: 50, heat: 0, heatCapacity: 100, action: null,
       input: { x: 0, z: 0 }, modules: {},
@@ -536,6 +594,7 @@ export class WorldState {
     const mech = this.state.mechs.get(command.mechId);
     const module = MODULES[command.moduleKey];
     if (!mech) return this.#reject(command, 'mech not found');
+    if (command.playerId && mech.pilotId !== command.playerId) return this.#reject(command, 'pilot authority required');
     if (!module) return this.#reject(command, 'unknown mech module');
     if (module.slot !== command.slot) return this.#reject(command, 'module does not fit slot');
     mech.modules[command.slot] = {
@@ -548,6 +607,7 @@ export class WorldState {
   #activateMech(command) {
     const mech = this.state.mechs.get(command.mechId);
     if (!mech) return this.#reject(command, 'mech not found');
+    if (command.playerId && mech.pilotId !== command.playerId) return this.#reject(command, 'pilot authority required');
     if (mech.status === 'disabled') return this.#reject(command, 'mech is disabled');
     const action = String(command.action ?? 'scan');
     const allowed = new Set(Object.values(mech.modules).map((entry) => MODULES[entry.moduleKey]?.action).filter(Boolean));
@@ -601,7 +661,10 @@ export class WorldState {
       else if (this.state.undead.has(target.id)) target.status = 'dead';
       else if (this.state.bosses.has(target.id)) target.status = 'defeated';
       else if (this.state.vehicles.has(target.id)) target.status = 'disabled';
-      else if (this.state.mechs.has(target.id)) target.status = 'disabled';
+      else if (this.state.mechs.has(target.id)) {
+        target.status = 'disabled';
+        this.#releaseMechPilot(target);
+      }
       else target.status = 'downed';
     }
     this.#event('damage.applied', { targetId: target.id, sourceId, amount: actual, health: target.health });
@@ -610,7 +673,28 @@ export class WorldState {
   #simulatePlayers() {
     const dt = 1 / this.rules.tickRate;
     for (const player of this.state.players.values()) {
-      if (player.status !== 'active' || player.vehicleId) continue;
+      if (player.status !== 'active') continue;
+      if (player.mechId) {
+        const mech = this.state.mechs.get(player.mechId);
+        if (!mech || mech.pilotId !== player.id) {
+          player.mechId = null;
+          player.velocity = { x: 0, y: 0, z: 0 };
+          continue;
+        }
+        const direction = normalizeDirection(player.input);
+        mech.input = direction;
+        const canMove = mech.status !== 'disabled' && mech.status !== 'overheated';
+        const speed = this.#mechMovementSpeed(mech);
+        player.velocity = { x: quantize(canMove ? direction.x * speed : 0), y: 0, z: quantize(canMove ? direction.z * speed : 0) };
+        if (canMove) {
+          mech.position.x = quantize(clamp(mech.position.x + player.velocity.x * dt, this.rules.bounds.minX, this.rules.bounds.maxX));
+          mech.position.z = quantize(clamp(mech.position.z + player.velocity.z * dt, this.rules.bounds.minZ, this.rules.bounds.maxZ));
+        }
+        player.position = clone(mech.position);
+        player.stamina = quantize(Math.min(100, player.stamina + 5 * dt));
+        continue;
+      }
+      if (player.vehicleId) continue;
       const speed = player.input.sprint && player.stamina > 0 ? this.rules.sprintSpeed : this.rules.playerSpeed;
       const direction = normalizeDirection(player.input);
       player.velocity = { x: quantize(direction.x * speed), y: 0, z: quantize(direction.z * speed) };
@@ -705,12 +789,20 @@ export class WorldState {
 
   #simulateMechs() {
     for (const mech of this.state.mechs.values()) {
+      if (mech.status === 'disabled') {
+        mech.action = null;
+        continue;
+      }
       mech.heat = quantize(Math.max(0, mech.heat - 2));
       mech.energy = quantize(Math.min(mech.energyMax, mech.energy + 0.2));
       if (mech.heat > mech.heatCapacity) {
         mech.status = 'overheated';
         mech.energy = Math.max(0, mech.energy - 1);
       } else if (mech.status === 'overheated' && mech.heat < mech.heatCapacity * 0.5) {
+        mech.status = mech.pilotId ? 'piloted' : 'parked';
+      } else if (mech.pilotId) {
+        mech.status = 'piloted';
+      } else if (mech.status === 'piloted') {
         mech.status = 'parked';
       }
       mech.action = null;
@@ -760,6 +852,26 @@ export class WorldState {
     mech.energy = Math.min(mech.energy, mech.energyMax);
     mech.heatCapacity = heatCapacity;
     mech.armor = armor;
+  }
+
+  #mechMovementSpeed(mech) {
+    const locomotion = mech.modules.locomotion;
+    return MODULES[locomotion?.moduleKey]?.speed ?? 3;
+  }
+
+  #releaseMechPilot(mech, { placePlayer = true } = {}) {
+    if (!mech) return;
+    const pilotId = mech.pilotId;
+    mech.pilotId = null;
+    mech.input = { x: 0, z: 0 };
+    if (mech.status !== 'disabled' && mech.status !== 'overheated') mech.status = 'parked';
+    if (!pilotId) return;
+    const player = this.state.players.get(pilotId);
+    if (!player || player.mechId !== mech.id) return;
+    player.mechId = null;
+    player.input = { x: 0, z: 0, sprint: false };
+    player.velocity = { x: 0, y: 0, z: 0 };
+    if (placePlayer) player.position = this.#clampPosition({ ...mech.position, x: mech.position.x + 1.5 });
   }
 
   #removePassenger(vehicleId, playerId) {

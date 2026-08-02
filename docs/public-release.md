@@ -15,6 +15,8 @@
 - Local desktop, 390×844 iPhone-sized, and 412×915 Android-sized layouts were inspected.
 - Inspection mode exposed the grid and stable asset labels.
 - A construction command replicated between the two clients.
+- The authority protocol test piloted the seeded modular mech at its exact grid position, verified module loadout, and confirmed player/mech attachment.
+- The authority regression suite verified that player input drives the boarded vehicle only for its driver.
 - Reconnect behavior returned to `CONNECTED` after the relay was restarted.
 - The material audit found all eight semantic materials and their generated images.
 

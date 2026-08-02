@@ -5,6 +5,15 @@ const vehicleKinds = new Map([
   ['VEHICLE-BUGGY-0001', 'scout'],
   ['VEHICLE-CARGO-0001', 'cargo'],
 ]);
+const mechLoadouts = new Map([
+  ['MECH-SUIT-COMMONS-0001', [
+    { slot: 'core', moduleKey: 'core-capacitor' },
+    { slot: 'locomotion', moduleKey: 'heavy-legs' },
+    { slot: 'left-arm', moduleKey: 'shield' },
+    { slot: 'right-arm', moduleKey: 'impact-tool' },
+    { slot: 'utility', moduleKey: 'sensor-array' },
+  ]],
+]);
 
 export function createSceneSeedCommands() {
   const commands = [];
@@ -33,6 +42,22 @@ export function createSceneSeedCommands() {
         kind: vehicleKinds.get(record.id) ?? 'scout',
         position: record.position,
       });
+    }
+    if (record.category === 'mech') {
+      commands.push({
+        type: 'mech.create',
+        mechId: record.id,
+        chassis: 'commons-01',
+        position: record.position,
+      });
+      for (const module of mechLoadouts.get(record.id) ?? []) {
+        commands.push({
+          type: 'mech.installModule',
+          mechId: record.id,
+          slot: module.slot,
+          moduleKey: module.moduleKey,
+        });
+      }
     }
   }
 

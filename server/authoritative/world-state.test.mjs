@@ -199,3 +199,76 @@ test('dedupe retention is bounded and expires deterministically', () => {
   assert.notEqual(expired.sequence, first.sequence);
   assert.equal(world.snapshot().players.length, 1);
 });
+
+test('mech pilot and unpilot commands enforce range, occupancy, and follow movement', () => {
+  const world = createWorld();
+  send(world, { type: 'player.join', playerId: 'p1', position: { x: 0, y: 0, z: 0 } });
+  send(world, { type: 'player.join', playerId: 'p2', position: { x: 0, y: 0, z: 0 } });
+  send(world, { type: 'mech.create', mechId: 'mech-1', position: { x: 0, y: 0, z: 0 } });
+  send(world, { type: 'mech.create', mechId: 'mech-2', position: { x: 20, y: 0, z: 0 } });
+  world.step();
+
+  const pilot = send(world, {
+    type: 'mech.pilot', commandId: 'pilot-mech-1', playerId: 'p1', mechId: 'mech-1',
+  });
+  assert.deepEqual(world.enqueue({
+    type: 'mech.pilot', commandId: 'pilot-mech-1', playerId: 'p1', mechId: 'mech-1',
+  }), { ...pilot, duplicate: true, commandId: 'pilot-mech-1' });
+  send(world, { type: 'mech.pilot', playerId: 'p2', mechId: 'mech-1' });
+  send(world, { type: 'mech.pilot', playerId: 'p2', mechId: 'mech-2' });
+  world.step();
+
+  let snapshot = world.snapshot();
+  assert.equal(byId(snapshot, 'players', 'p1').mechId, 'mech-1');
+  assert.equal(byId(snapshot, 'mechs', 'mech-1').pilotId, 'p1');
+  assert.equal(byId(snapshot, 'mechs', 'mech-1').status, 'piloted');
+  assert.ok(snapshot.events.some((event) => event.reason === 'mech is already occupied'));
+  assert.ok(snapshot.events.some((event) => event.reason === 'mech is out of reach'));
+
+  send(world, { type: 'player.move', playerId: 'p1', direction: { x: 1, z: 0 } });
+  world.step();
+  snapshot = world.snapshot();
+  assert.equal(byId(snapshot, 'mechs', 'mech-1').position.x, 0.15);
+  assert.equal(byId(snapshot, 'players', 'p1').position.x, 0.15);
+  assert.deepEqual(byId(snapshot, 'players', 'p1').position, byId(snapshot, 'mechs', 'mech-1').position);
+
+  send(world, { type: 'mech.unpilot', playerId: 'p2', mechId: 'mech-1' });
+  send(world, { type: 'mech.unpilot', playerId: 'p1', mechId: 'mech-1' });
+  world.step();
+  snapshot = world.snapshot();
+  assert.equal(byId(snapshot, 'players', 'p1').mechId, null);
+  assert.equal(byId(snapshot, 'mechs', 'mech-1').pilotId, null);
+  assert.equal(byId(snapshot, 'mechs', 'mech-1').status, 'parked');
+  assert.equal(byId(snapshot, 'players', 'p1').position.x, 1.65);
+  assert.ok(snapshot.events.some((event) => event.reason === 'player is not piloting a mech'));
+  assert.ok(snapshot.events.some((event) => event.type === 'mech.unpiloted'));
+});
+
+test('player movement drives only the boarded vehicle driver and passengers follow', () => {
+  const world = createWorld();
+  send(world, { type: 'player.join', playerId: 'driver', position: { x: 0, y: 0, z: 0 } });
+  send(world, { type: 'player.join', playerId: 'passenger', position: { x: 0, y: 0, z: 0 } });
+  send(world, { type: 'vehicle.spawn', vehicleId: 'cargo-1', kind: 'cargo', position: { x: 0, y: 0, z: 0 } });
+  world.step();
+
+  send(world, { type: 'player.enterVehicle', playerId: 'driver', vehicleId: 'cargo-1' });
+  send(world, { type: 'player.enterVehicle', playerId: 'passenger', vehicleId: 'cargo-1' });
+  world.step();
+  assert.equal(byId(world.snapshot(), 'vehicles', 'cargo-1').driverId, 'driver');
+  assert.deepEqual(byId(world.snapshot(), 'vehicles', 'cargo-1').passengerIds, ['passenger']);
+
+  send(world, { type: 'player.move', playerId: 'driver', direction: { x: 1, z: 0 } });
+  world.step(2);
+  let snapshot = world.snapshot();
+  assert.equal(byId(snapshot, 'vehicles', 'cargo-1').position.x, 0.4);
+  assert.equal(byId(snapshot, 'players', 'driver').position.x, 0.4);
+  assert.equal(byId(snapshot, 'players', 'passenger').position.x, 0.4);
+
+  send(world, { type: 'player.move', playerId: 'passenger', direction: { x: 0, z: 1 } });
+  world.step();
+  snapshot = world.snapshot();
+  assert.equal(byId(snapshot, 'vehicles', 'cargo-1').position.x, 0.6);
+  assert.equal(byId(snapshot, 'vehicles', 'cargo-1').position.z, 0);
+  assert.equal(byId(snapshot, 'players', 'passenger').position.x, 0.6);
+  assert.equal(byId(snapshot, 'players', 'passenger').position.z, 0);
+});
