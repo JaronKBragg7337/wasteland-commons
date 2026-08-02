@@ -3,6 +3,7 @@ import { supabaseConfigured, supabaseServerKey, supabaseUrl } from './supabase-c
 const SNAPSHOT_TABLE = 'wasteland_rooms';
 const EVENT_TABLE = 'wasteland_events';
 const COMMAND_TABLE = 'wasteland_commands';
+const PLAYER_SESSION_TABLE = 'wasteland_player_sessions';
 const CLAIM_LEASE_RPC = 'try_claim_wasteland_lease';
 const RELEASE_LEASE_RPC = 'release_wasteland_lease';
 
@@ -106,6 +107,45 @@ export function createSupabaseStore({ worldId } = {}) {
         p_owner_id: String(ownerId),
       });
       return booleanResult(result);
+    },
+    async loadPlayerSession({ playerId, tokenHash, now = new Date().toISOString() } = {}) {
+      if (!supabaseConfigured()) return null;
+      const safePlayerId = String(playerId ?? '').trim();
+      const safeTokenHash = String(tokenHash ?? '').trim();
+      if (!safePlayerId || !safeTokenHash) return null;
+      const search = `?world_id=eq.${encodeURIComponent(id)}&player_id=eq.${encodeURIComponent(safePlayerId)}&token_hash=eq.${encodeURIComponent(safeTokenHash)}&expires_at=gt.${encodeURIComponent(now)}&select=player_id,connection_id,display_name,expires_at&limit=1`;
+      const rows = await get(PLAYER_SESSION_TABLE, search, { notFoundIsNull: false });
+      return rows?.[0] ?? null;
+    },
+    async savePlayerSession({ playerId, tokenHash, connectionId = '', displayName = '', expiresAt } = {}) {
+      if (!supabaseConfigured()) return { persisted: false, reason: 'not-configured' };
+      const safePlayerId = String(playerId ?? '').trim();
+      const safeTokenHash = String(tokenHash ?? '').trim();
+      const safeExpiresAt = String(expiresAt ?? '').trim();
+      if (!safePlayerId || !safeTokenHash || !safeExpiresAt) throw new Error('player session requires playerId, tokenHash, and expiresAt');
+      await post(PLAYER_SESSION_TABLE, {
+        world_id: id,
+        player_id: safePlayerId,
+        token_hash: safeTokenHash,
+        connection_id: String(connectionId ?? '').slice(0, 128),
+        display_name: String(displayName ?? '').slice(0, 80),
+        expires_at: safeExpiresAt,
+        updated_at: new Date().toISOString(),
+      }, '?on_conflict=world_id,player_id', 'resolution=merge-duplicates,return=minimal');
+      return { persisted: true, playerId: safePlayerId, expiresAt: safeExpiresAt };
+    },
+    async deletePlayerSession({ playerId, tokenHash } = {}) {
+      if (!supabaseConfigured()) return { persisted: false, reason: 'not-configured' };
+      const safePlayerId = String(playerId ?? '').trim();
+      const safeTokenHash = String(tokenHash ?? '').trim();
+      if (!safePlayerId || !safeTokenHash) return { persisted: false, reason: 'missing-session-identity' };
+      const search = `?world_id=eq.${encodeURIComponent(id)}&player_id=eq.${encodeURIComponent(safePlayerId)}&token_hash=eq.${encodeURIComponent(safeTokenHash)}`;
+      const response = await fetch(`${endpoint(PLAYER_SESSION_TABLE)}${search}`, {
+        method: 'DELETE',
+        headers: headers('return=minimal'),
+      });
+      if (!response.ok) throw new Error(`Supabase ${PLAYER_SESSION_TABLE} delete failed (${response.status})`);
+      return { persisted: true, playerId: safePlayerId };
     },
     async enqueueCommand(command) {
       if (!supabaseConfigured()) return { persisted: false, reason: 'not-configured' };

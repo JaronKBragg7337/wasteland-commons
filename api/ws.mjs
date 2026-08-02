@@ -1,5 +1,5 @@
 import { createServer } from 'node:http';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { WebSocketServer } from 'ws';
 import { createWorld } from '../server/authoritative/world-state.mjs';
 import { restoreWorld } from '../server/authoritative/restore.mjs';
@@ -167,6 +167,14 @@ function broadcastSnapshot(current = snapshot()) {
 }
 function commandIdFor(message, prefix) { return String(message.commandId ?? `${prefix}-${randomUUID()}`); }
 
+function resumeTokenHash(resumeToken) {
+  return createHash('sha256').update(String(resumeToken)).digest('hex');
+}
+
+function sessionExpiry() {
+  return new Date(Date.now() + PLAYER_GRACE_PERIOD_MS).toISOString();
+}
+
 function enqueueFromSocket(socket, command) {
   const result = sharedCommand(command);
   if (command?.commandId) {
@@ -202,37 +210,80 @@ function clearResumeTimers(session) {
   session.expireTimer = null;
 }
 
+async function sessionConnectionIsCurrent(session) {
+  if (!persistence.enabled) return true;
+  try {
+    const persisted = await persistence.loadPlayerSession({
+      playerId: session.playerId,
+      tokenHash: resumeTokenHash(session.resumeToken),
+      // A small look-back lets the expiry callback see the row at the exact
+      // grace boundary while still treating a genuinely expired row as gone.
+      now: new Date(Date.now() - 5_000).toISOString(),
+    });
+    return !persisted || !persisted.connection_id || persisted.connection_id === session.connectionId;
+  } catch (error) {
+    console.error(`Supabase player session check failed: ${error.message}`);
+    return false;
+  }
+}
+
+async function markSessionDisconnected(playerId, resumeToken, connectionId) {
+  const current = resumeSessions.get(playerId);
+  if (!current || current.resumeToken !== resumeToken || current.connectionId !== connectionId || current.socket) return;
+  if (!await sessionConnectionIsCurrent(current)) return;
+  sharedCommand({
+    type: 'player.disconnect',
+    commandId: `disconnect-${playerId}-${snapshot().revision}`,
+    playerId,
+  });
+}
+
+async function expireSession(playerId, resumeToken, connectionId) {
+  const current = resumeSessions.get(playerId);
+  if (!current || current.resumeToken !== resumeToken || current.connectionId !== connectionId || current.socket) return;
+  if (!await sessionConnectionIsCurrent(current)) return;
+  resumeSessions.delete(playerId);
+  sharedCommand({
+    type: 'player.leave',
+    commandId: `leave-${playerId}-${snapshot().revision}`,
+    playerId,
+  });
+}
+
 function scheduleResumeExpiry(playerId, resumeToken) {
   const session = resumeSessions.get(playerId);
   if (!session || session.resumeToken !== resumeToken) return;
   clearResumeTimers(session);
+  const { connectionId } = session;
   session.disconnectTimer = setTimeout(() => {
-    const current = resumeSessions.get(playerId);
-    if (!current || current.resumeToken !== resumeToken || current.socket) return;
-    sharedCommand({
-      type: 'player.disconnect',
-      commandId: `disconnect-${playerId}-${snapshot().revision}`,
-      playerId,
-    });
+    void markSessionDisconnected(playerId, resumeToken, connectionId);
   }, PLAYER_DISCONNECT_DELAY_MS);
   session.expireTimer = setTimeout(() => {
-    const current = resumeSessions.get(playerId);
-    if (!current || current.resumeToken !== resumeToken || current.socket) return;
-    resumeSessions.delete(playerId);
-    sharedCommand({
-      type: 'player.leave',
-      commandId: `leave-${playerId}-${snapshot().revision}`,
-      playerId,
-    });
+    void expireSession(playerId, resumeToken, connectionId);
   }, PLAYER_GRACE_PERIOD_MS);
 }
 
-function sessionForResume(requested) {
+async function sessionForResume(requested) {
   if (!requested.playerId || !requested.resumeToken) return null;
   const session = resumeSessions.get(requested.playerId);
-  if (!session || session.resumeToken !== requested.resumeToken) return null;
-  if (!world.state.players.has(requested.playerId)) return null;
-  return session;
+  if (session && session.resumeToken === requested.resumeToken && world.state.players.has(requested.playerId)) return session;
+  if (!persistence.enabled) return null;
+  const persisted = await persistence.loadPlayerSession({
+    playerId: requested.playerId,
+    tokenHash: resumeTokenHash(requested.resumeToken),
+  });
+  if (!persisted || !world.state.players.has(requested.playerId)) return null;
+  const restored = {
+    playerId: requested.playerId,
+    resumeToken: requested.resumeToken,
+    connectionId: null,
+    displayName: String(persisted.display_name ?? '').slice(0, 80),
+    socket: null,
+    disconnectTimer: null,
+    expireTimer: null,
+  };
+  resumeSessions.set(requested.playerId, restored);
+  return restored;
 }
 
 function queuePersistence(currentSnapshot) {
@@ -266,27 +317,30 @@ const simulationTimer = setInterval(() => {
 }, 1000 / 20);
 simulationTimer.unref?.();
 
-wss.on('connection', (socket, request) => {
+async function handleConnection(socket, request) {
   const requested = connectionRequest(request);
-  const resumedSession = sessionForResume(requested);
+  const resumedSession = await sessionForResume(requested);
   const resumed = Boolean(resumedSession);
   const playerId = resumed ? requested.playerId : `SURVIVOR-${randomUUID().slice(0, 8).toUpperCase()}`;
   const spawnIndex = connections.size;
   const position = { x: spawnIndex * 3 - 1.5, y: 0.9, z: 28 };
   const resumeToken = resumed ? resumedSession.resumeToken : randomUUID();
+  const displayName = resumedSession?.displayName || `Survivor ${spawnIndex + 1}`;
   const previousConnection = connections.get(playerId);
   if (previousConnection && previousConnection.socket !== socket) {
     try { previousConnection.socket.close(4001, 'session resumed on another connection'); } catch { /* best effort */ }
   }
-  const connection = { socket, playerId, resumeToken };
-  connections.set(playerId, connection);
-  const session = resumedSession ?? { playerId, resumeToken, socket: null, disconnectTimer: null, expireTimer: null };
+  const session = resumedSession ?? { playerId, resumeToken, displayName, socket: null, disconnectTimer: null, expireTimer: null };
+  session.connectionId = randomUUID();
+  session.displayName = displayName;
   clearResumeTimers(session);
   session.socket = socket;
+  const connection = { socket, playerId, resumeToken, connectionId: session.connectionId };
+  connections.set(playerId, connection);
   resumeSessions.set(playerId, session);
   const accepted = sharedCommand(resumed
-    ? { type: 'player.resume', commandId: `resume-${playerId}-${snapshot().revision}`, playerId, name: `Survivor ${spawnIndex + 1}` }
-    : { type: 'player.join', commandId: `join-${playerId}`, playerId, name: `Survivor ${spawnIndex + 1}`, position });
+    ? { type: 'player.resume', commandId: `resume-${playerId}-${snapshot().revision}`, playerId, name: displayName }
+    : { type: 'player.join', commandId: `join-${playerId}`, playerId, name: displayName, position });
   if (!accepted.accepted) {
     send(socket, { type: 'error', reason: accepted.reason });
     socket.close(1013, 'world capacity unavailable');
@@ -294,6 +348,26 @@ wss.on('connection', (socket, request) => {
     session.socket = null;
     scheduleResumeExpiry(playerId, resumeToken);
     return;
+  }
+  if (persistence.enabled) {
+    try {
+      await persistence.savePlayerSession({
+        playerId,
+        tokenHash: resumeTokenHash(resumeToken),
+        connectionId: session.connectionId,
+        displayName,
+        expiresAt: sessionExpiry(),
+      });
+    } catch (error) {
+      console.error(`Supabase player session save failed: ${error.message}`);
+      sharedCommand({ type: 'player.leave', commandId: `leave-${playerId}-${snapshot().revision}`, playerId });
+      send(socket, { type: 'error', reason: 'durable player session unavailable' });
+      socket.close(1013, 'durable session unavailable');
+      connections.delete(playerId);
+      resumeSessions.delete(playerId);
+      session.socket = null;
+      return;
+    }
   }
   send(socket, {
     type: 'welcome', playerId, resumeToken, resumed,
@@ -322,6 +396,14 @@ wss.on('connection', (socket, request) => {
     if (!current || current.resumeToken !== resumeToken) return;
     current.socket = null;
     scheduleResumeExpiry(playerId, resumeToken);
+  });
+}
+
+wss.on('connection', (socket, request) => {
+  void handleConnection(socket, request).catch((error) => {
+    console.error(`WebSocket connection setup failed: ${error.message}`);
+    send(socket, { type: 'error', reason: 'connection setup failed' });
+    try { socket.close(1013, 'connection setup failed'); } catch { socket.terminate(); }
   });
 });
 

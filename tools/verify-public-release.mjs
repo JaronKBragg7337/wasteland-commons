@@ -115,8 +115,13 @@ async function waitUntil(label, predicate, sessions = [], timeout = waitMs) {
   throw new Error(`${label} was not observed within ${timeout}ms`);
 }
 
-async function connectClient(index) {
-  const socket = new WebSocket(expectedRelayUrl);
+async function connectClient(index, resume = null) {
+  const relay = new URL(expectedRelayUrl);
+  if (resume?.playerId && resume?.resumeToken) {
+    relay.searchParams.set('playerId', resume.playerId);
+    relay.searchParams.set('resumeToken', resume.resumeToken);
+  }
+  const socket = new WebSocket(relay);
   sockets.add(socket);
   const session = {
     index,
@@ -327,9 +332,18 @@ async function main() {
       completed: completed.map(constructionSummary),
     };
 
+    const resumeCredentials = sessions.map(({ welcome }) => ({
+      playerId: welcome.playerId,
+      resumeToken: welcome.resumeToken,
+    }));
     await Promise.all(sessions.map((session) => session.close()));
     await delay(reconnectPauseMs);
-    sessions = await Promise.all([connectClient(0), connectClient(1)]);
+    sessions = await Promise.all(resumeCredentials.map((resume, index) => connectClient(index, resume)));
+
+    if (!sessions.every((session, index) => session.welcome.resumed === true
+      && session.welcome.playerId === resumeCredentials[index].playerId)) {
+      throw new Error('reconnected clients did not resume their original anonymous player identities');
+    }
 
     const reconnectWelcomeConstructions = sessions.map((session) => constructionFor(session.welcome.snapshot));
     const survivedReconnect = await waitUntil(
@@ -370,6 +384,7 @@ async function main() {
         reconnectWelcome: reconnectWelcomeConstructions.map(constructionSummary),
         afterReconnect: survivedReconnect.map(constructionSummary),
         survivedReconnect: true,
+        resumedPlayers: sessions.map(({ welcome }) => ({ playerId: welcome.playerId, resumed: welcome.resumed })),
       },
       clients: sessions.map(({ welcome, snapshots }) => ({
         playerId: welcome.playerId,

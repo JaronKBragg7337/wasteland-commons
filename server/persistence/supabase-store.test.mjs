@@ -160,3 +160,52 @@ test('configured store persists, reads, and acknowledges durable commands', asyn
     restoreEnvironment(previous);
   }
 });
+
+test('configured store persists hashed anonymous resume sessions with connection fencing', async () => {
+  const previous = { url: process.env.SUPABASE_URL, key: process.env.SUPABASE_SERVICE_ROLE_KEY };
+  process.env.SUPABASE_URL = 'https://example.supabase.co';
+  process.env.SUPABASE_SERVICE_ROLE_KEY = 'server-only-test-key';
+  const requests = [];
+  globalThis.fetch = async (url, options = {}) => {
+    requests.push({ url: String(url), options });
+    if (options.method === 'DELETE') return { ok: true, status: 204 };
+    if (options.method === 'POST') return { ok: true, status: 201 };
+    return {
+      ok: true,
+      status: 200,
+      async json() {
+        return [{ player_id: 'SURVIVOR-0001', connection_id: 'connection-1', display_name: 'Survivor One', expires_at: '2099-01-01T00:00:00.000Z' }];
+      },
+    };
+  };
+  try {
+    const store = createSupabaseStore({ worldId: 'test-world' });
+    assert.deepEqual(await store.savePlayerSession({
+      playerId: 'SURVIVOR-0001',
+      tokenHash: 'a'.repeat(64),
+      connectionId: 'connection-1',
+      displayName: 'Survivor One',
+      expiresAt: '2099-01-01T00:00:00.000Z',
+    }), { persisted: true, playerId: 'SURVIVOR-0001', expiresAt: '2099-01-01T00:00:00.000Z' });
+    assert.deepEqual(await store.loadPlayerSession({
+      playerId: 'SURVIVOR-0001',
+      tokenHash: 'a'.repeat(64),
+      now: '2026-01-01T00:00:00.000Z',
+    }), {
+      player_id: 'SURVIVOR-0001',
+      connection_id: 'connection-1',
+      display_name: 'Survivor One',
+      expires_at: '2099-01-01T00:00:00.000Z',
+    });
+    assert.deepEqual(await store.deletePlayerSession({ playerId: 'SURVIVOR-0001', tokenHash: 'a'.repeat(64) }), {
+      persisted: true,
+      playerId: 'SURVIVOR-0001',
+    });
+    assert.match(requests[0].url, /wasteland_player_sessions\?on_conflict=world_id,player_id$/);
+    assert.match(requests[1].url, /player_id=eq\.SURVIVOR-0001/);
+    assert.match(requests[1].url, /connection_id,display_name,expires_at/);
+    assert.equal(requests[2].options.method, 'DELETE');
+  } finally {
+    restoreEnvironment(previous);
+  }
+});
