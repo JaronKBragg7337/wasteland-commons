@@ -33,6 +33,7 @@
 - The authority regression suite verified that player input drives the boarded vehicle only for its driver.
 - Reconnect behavior returned to `CONNECTED` after the relay was restarted.
 - The material audit found all eight semantic materials and their generated images.
+- The current candidate was visually rechecked at the default desktop viewport, 390×844, and 412×915. Each reached `CONNECTED` and `VALIDATED` with no horizontal overflow; Inspection mode rendered the grid/asset overlay and the Build control completed without a client error.
 - The reproducible gate is `npm run verify:public`; the current production candidate reaches both WebSocket functions but reports `sharedSnapshot: false` because the server-only key is not yet present. It must be rerun after the Vercel secret handoff before release sign-off.
 
 ## Persistence boundary
