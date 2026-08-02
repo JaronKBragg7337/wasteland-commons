@@ -1,0 +1,9 @@
+# Vercel serves the browser build; native store source is built by platform CI.
+mobile/capacitor/android/
+mobile/capacitor/ios/
+mobile/capacitor/resources/
+mobile/capacitor/node_modules/
+mobile/capacitor/package.json
+mobile/capacitor/package-lock.json
+mobile/capacitor/README.md
+mobile/store-readiness-and-packaging-contract.md
