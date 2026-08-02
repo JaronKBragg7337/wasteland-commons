@@ -2,6 +2,8 @@
 
 Wasteland Commons is a browser-first cooperative post-collapse game built for a parent and child to play together across desktop, iPhone, and Android.
 
+**Play the public build:** [wasteland-commons.vercel.app](https://wasteland-commons.vercel.app/) — it works without installation or a login. Open it on two devices or browser tabs to test the shared world.
+
 The world is built around a spatial contract: every meaningful object has a stable identity, a deterministic grid address, semantic material parts, collision bounds, and a validation record from the moment it enters the world. Beauty mode is the player-facing world. Inspection mode exposes the contract so a human or AI can locate, understand, and repair exact objects.
 
 ## Current game direction
