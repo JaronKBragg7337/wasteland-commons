@@ -8,6 +8,13 @@
 - Multiplayer transport: `wss://wasteland-commons.vercel.app/api/ws`
 - License: CC0 1.0 Universal in `LICENSE`
 
+## Current release record
+
+- Source commit: `c84cd94` (`Stabilize construction support and settlement cadence`)
+- Production deployment: `dpl_ARkPBhtCi39Qjr2BRq2M4Y5q4fxr` — READY
+- Manifest hash: `2332c91ca27b9abe625edce1a289a1f2d6ec9cfdd9435b9ecefa3200b57dda64`
+- Browser verification rerun: desktop, 390×844 iPhone-sized, and 412×915 Android-sized viewports; construction remained `VALIDATED` after the authoritative round trip.
+
 ## What was verified
 
 - Production Vite build completed through Vercel.
