@@ -12,10 +12,10 @@
 
 - Previous production source commit: `c84cd94` (`Stabilize construction support and settlement cadence`)
 - Previous production deployment: `dpl_6yBVNYiNx4C7CUZZLdWvMkEtQMye` — READY
-- Current production source: `0e883d3` (`Harden shared relay persistence and release verification`), merged through public PR [#1](https://github.com/JaronKBragg7337/wasteland-commons/pull/1), CI green
-- Current production deployment: `dpl_AnWUmBLb8QTPqdVpkkuZCyuAGVHU` — READY, aliased to `https://wasteland-commons.vercel.app`
+- Current production source: `3abcf4d` (`fix: add mobile HUD breathing room`), merged through public PRs [#1](https://github.com/JaronKBragg7337/wasteland-commons/pull/1), [#2](https://github.com/JaronKBragg7337/wasteland-commons/pull/2), [#3](https://github.com/JaronKBragg7337/wasteland-commons/pull/3), and [#4](https://github.com/JaronKBragg7337/wasteland-commons/pull/4), CI green
+- Current production deployment: `dpl_DZyqY9aDwAXkyC9bP6N2tZ3xD44d` — READY, aliased to `https://wasteland-commons.vercel.app`
 - Manifest hash: `2332c91ca27b9abe625edce1a289a1f2d6ec9cfdd9435b9ecefa3200b57dda64`
-- Browser verification rerun: desktop, 390×844 iPhone-sized, and 412×915 Android-sized viewports; construction remained `VALIDATED` after the authoritative round trip.
+- Browser verification rerun: desktop, 390×844 iPhone-sized, and 412×915 Android-sized viewports; construction remained `VALIDATED` after the authoritative round trip, and the mobile HUD/inspection hint no longer overlaps the action controls.
 
 ## What was verified
 
@@ -25,7 +25,7 @@
 - The local authoritative relay passed the two-client protocol test, including shared player state and construction replication.
 - A fresh production two-client WebSocket audit completed both handshakes, but the clients received isolated player lists because Vercel function instances do not share the in-memory world. Public shared multiplayer is therefore not marked passed.
 - Local desktop, 390×844 iPhone-sized, and 412×915 Android-sized layouts were inspected.
-- Fresh public visual inspection passed at the default desktop viewport and 390×844 phone viewport: `CONNECTED`, `BEAUTY`, `VALIDATED`, responsive controls, and no visible layout overflow.
+- Fresh public visual inspection passed at the default desktop viewport and 390×844 phone viewport: `CONNECTED`, `BEAUTY`, `VALIDATED`, `POWER`, `NPCS`, `REVISION`, responsive controls, reconnect messaging, and no visible layout overflow.
 - Inspection mode exposed the grid and stable asset labels.
 - Public Inspection mode and the Build action completed with visible status feedback before returning to Beauty mode.
 - A construction command replicated between two clients on the local authoritative relay.
