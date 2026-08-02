@@ -12,7 +12,10 @@ let world = createWorld({ worldId: 'saltglass-basin', worldSeed: 'saltglass-comm
 const connections = new Map();
 const resumeSessions = new Map();
 const PLAYER_DISCONNECT_DELAY_MS = 1_500;
-const PLAYER_GRACE_PERIOD_MS = 30_000;
+// Mobile Safari and Android backgrounding can suspend a tab for longer than
+// a normal WebSocket reconnect. Keep the anonymous player slot for the same
+// two-minute grace period promised by the mobile release contract.
+const PLAYER_GRACE_PERIOD_MS = 120_000;
 let pendingPersistenceEvents = [];
 let lastQueuedPersistenceRevision = 0;
 let persistenceTail = Promise.resolve();
