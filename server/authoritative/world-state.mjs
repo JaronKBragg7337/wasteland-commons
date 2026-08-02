@@ -44,6 +44,8 @@ const DEFAULT_RULES = Object.freeze({
   playerSpeed: 3,
   sprintSpeed: 5,
   mechPilotRange: 4,
+  constructionGroundY: 0.8,
+  jobIntervalTicks: 200,
   vehicleSpeed: Object.freeze({ scout: 6, cargo: 4 }),
   construction: Object.freeze({
     foundation: Object.freeze({ buildTicks: 20, cost: Object.freeze({ scrap: 8, power: 0 }) }),
@@ -174,6 +176,8 @@ export class WorldState {
       ...rules,
       commandDedupeTicks: Math.max(1, integer(rules.commandDedupeTicks, DEFAULT_RULES.commandDedupeTicks)),
       commandDedupeMaxEntries: Math.max(1, integer(rules.commandDedupeMaxEntries, DEFAULT_RULES.commandDedupeMaxEntries)),
+      constructionGroundY: Math.max(0, quantize(rules.constructionGroundY ?? DEFAULT_RULES.constructionGroundY)),
+      jobIntervalTicks: Math.max(1, integer(rules.jobIntervalTicks, DEFAULT_RULES.jobIntervalTicks)),
       bounds: { ...DEFAULT_RULES.bounds, ...(rules.bounds ?? {}) },
       vehicleSpeed: { ...DEFAULT_RULES.vehicleSpeed, ...(rules.vehicleSpeed ?? {}) },
       construction: { ...DEFAULT_RULES.construction, ...(rules.construction ?? {}) },
@@ -768,7 +772,7 @@ export class WorldState {
   }
 
   #simulateNpcJobs() {
-    if (this.state.tick % this.rules.tickRate !== 0) return;
+    if (this.state.tick % this.rules.jobIntervalTicks !== 0) return;
     for (const npc of this.state.npcs.values()) {
       if (npc.status !== 'working') continue;
       const output = { grower: { food: 3, water: -1 }, scavenger: { scrap: 2 }, mechanic: { power: -1 }, guard: {}, builder: {}, medic: {} }[npc.role] ?? {};
@@ -936,7 +940,7 @@ export class WorldState {
   #snapPosition(value = {}) {
     const position = positionOf(value);
     const size = this.rules.gridSize;
-    return this.#clampPosition({ x: Math.round(position.x / size) * size, y: Math.round(position.y / size) * size, z: Math.round(position.z / size) * size });
+    return this.#clampPosition({ x: Math.round(position.x / size) * size, y: this.rules.constructionGroundY, z: Math.round(position.z / size) * size });
   }
 
   #insideBounds(position) {

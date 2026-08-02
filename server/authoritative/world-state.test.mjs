@@ -53,7 +53,7 @@ test('player intent moves only during fixed steps and respects world bounds', ()
 });
 
 test('entities, vehicle authority, construction, and NPC production are authoritative', () => {
-  const world = createWorld();
+  const world = createWorld({ rules: { jobIntervalTicks: 20 } });
   send(world, { type: 'player.join', playerId: 'p1', position: { x: 0, y: 0, z: 0 } });
   send(world, { type: 'npc.spawn', npcId: 'builder-1', role: 'builder' });
   send(world, { type: 'npc.spawn', npcId: 'grower-1', role: 'grower' });
@@ -74,6 +74,18 @@ test('entities, vehicle authority, construction, and NPC production are authorit
   world.step(9);
   assert.equal(byId(world.snapshot(), 'npcs', 'grower-1').output, 1);
   assert.equal(world.snapshot().settlement.resources.food, 23);
+});
+
+test('NPC production uses a deliberate settlement cadence instead of draining each second', () => {
+  const world = createWorld();
+  send(world, { type: 'npc.spawn', npcId: 'grower-1', role: 'grower' });
+  world.step(20);
+  assert.equal(byId(world.snapshot(), 'npcs', 'grower-1').output, 0);
+  assert.equal(world.snapshot().settlement.resources.water, 20);
+  world.step(180);
+  assert.equal(byId(world.snapshot(), 'npcs', 'grower-1').output, 1);
+  assert.equal(world.snapshot().settlement.resources.food, 23);
+  assert.equal(world.snapshot().settlement.resources.water, 19);
 });
 
 test('hostile AI, buried undead, damage, boss phases, and defeat are deterministic', () => {
@@ -154,6 +166,7 @@ test('command IDs deduplicate retried side effects and reject conflicting reuse'
   world.step();
   const snapshot = world.snapshot();
   assert.equal(snapshot.constructions.length, 1);
+  assert.equal(snapshot.constructions[0].position.y, 0.8);
   assert.equal(snapshot.settlement.resources.scrap, 56);
   assert.equal(snapshot.events[0].commandId, 'build-request-1');
 });
