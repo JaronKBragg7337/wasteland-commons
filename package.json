@@ -16,7 +16,8 @@
     "test:authoritative": "node --test server/authoritative/world-state.test.mjs server/authoritative/restore.test.mjs server/authoritative/interactions.test.mjs server/scene-seed.test.mjs",
     "test:persistence": "node --test server/persistence/supabase-store.test.mjs server/shared-room-coordinator.test.mjs",
     "audit:materials": "node tools/material-audit.mjs",
-    "test:native": "node tools/validate-native.mjs"
+    "test:native": "node tools/validate-native.mjs",
+    "verify:public": "node tools/verify-public-release.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.111.0",
