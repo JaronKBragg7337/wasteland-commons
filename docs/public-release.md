@@ -12,8 +12,8 @@
 
 - Previous production source commit: `c84cd94` (`Stabilize construction support and settlement cadence`)
 - Previous production deployment: `dpl_6yBVNYiNx4C7CUZZLdWvMkEtQMye` — READY
-- Current production source: `b40915b` (`fix: honor mobile resume grace period`), merged through public PRs [#1](https://github.com/JaronKBragg7337/wasteland-commons/pull/1), [#2](https://github.com/JaronKBragg7337/wasteland-commons/pull/2), [#3](https://github.com/JaronKBragg7337/wasteland-commons/pull/3), [#4](https://github.com/JaronKBragg7337/wasteland-commons/pull/4), and [#6](https://github.com/JaronKBragg7337/wasteland-commons/pull/6), CI green
-- Current production deployment: `dpl_H45cRYBajsUhYqrbfr6EVDeczf3b` — READY, aliased to `https://wasteland-commons.vercel.app`
+- Current production source: `2f7e712` (`feat: persist anonymous resume capabilities`), merged through public PRs [#1](https://github.com/JaronKBragg7337/wasteland-commons/pull/1), [#2](https://github.com/JaronKBragg7337/wasteland-commons/pull/2), [#3](https://github.com/JaronKBragg7337/wasteland-commons/pull/3), [#4](https://github.com/JaronKBragg7337/wasteland-commons/pull/4), [#6](https://github.com/JaronKBragg7337/wasteland-commons/pull/6), and [#8](https://github.com/JaronKBragg7337/wasteland-commons/pull/8), CI green
+- Current production deployment: `dpl_8zSF6aorfSaHZnE2SQTCDXbM6DVU` — READY, aliased to `https://wasteland-commons.vercel.app`
 - Manifest hash: `2332c91ca27b9abe625edce1a289a1f2d6ec9cfdd9435b9ecefa3200b57dda64`
 - Browser verification rerun: desktop, 390×844 iPhone-sized, and 412×915 Android-sized viewports; construction remained `VALIDATED` after the authoritative round trip, the mobile HUD/inspection hint no longer overlaps the action controls, and the production relay now honors the two-minute resume grace contract.
 
@@ -34,11 +34,11 @@
 - Reconnect behavior returned to `CONNECTED` after the relay was restarted.
 - The material audit found all eight semantic materials and their generated images.
 - The current production source was visually rechecked at the default desktop viewport, 390×844, and 412×915. Each reached `CONNECTED` and `VALIDATED` with no horizontal overflow; Inspection mode rendered the grid/asset overlay and the Build control completed without a client error.
-- The reproducible gate is `npm run verify:public`; the current production deployment reaches both WebSocket functions but reports `sharedSnapshot: false` because the server-only key is not yet present. It must be rerun after the Vercel secret handoff before release sign-off.
+- The reproducible gate is `npm run verify:public`; it now checks shared player snapshots, durable construction, reconnect persistence, and anonymous player identity resumption. The current production deployment reaches the WebSocket function but reports `sharedSnapshot: false` because the server-only key is not yet present. It must be rerun after the Vercel secret handoff before release sign-off.
 
 ## Persistence boundary
 
-The public Vercel function is currently configured for instance-local memory because the server-only key has not yet been added. The dedicated Supabase project `wnwxihhjtoilmcilyyuk` in `ca-central-1` exists, and its world/event, authority-lease, durable-command, and public-access-lockdown migrations are applied. RLS is enabled and the Data API grants are revoked for `anon` and `authenticated`; the lease RPC has been exercised with competing owners and cleanup. Vercel has the non-secret project URL configured. The remaining persistence boundary is deployment of the server-only key, followed by public two-client, failover, and reload verification.
+The public Vercel function is currently configured for instance-local memory because the server-only key has not yet been added. The dedicated Supabase project `wnwxihhjtoilmcilyyuk` in `ca-central-1` exists, and its world/event, authority-lease, durable-command, public-access-lockdown, and durable-anonymous-session migrations are applied. RLS is enabled and the Data API grants are revoked for `anon` and `authenticated` on all relay tables; the lease RPC has been exercised with competing owners and cleanup, and the player-session table has been verified with the same access boundary. Vercel has the non-secret project URL configured. The remaining persistence boundary is deployment of the server-only key, followed by public two-client, failover, and reload verification.
 
 ## Store boundary
 
