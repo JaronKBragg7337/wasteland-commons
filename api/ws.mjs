@@ -258,9 +258,11 @@ function scheduleResumeExpiry(playerId, resumeToken) {
   session.disconnectTimer = setTimeout(() => {
     void markSessionDisconnected(playerId, resumeToken, connectionId);
   }, PLAYER_DISCONNECT_DELAY_MS);
+  session.disconnectTimer.unref?.();
   session.expireTimer = setTimeout(() => {
     void expireSession(playerId, resumeToken, connectionId);
   }, PLAYER_GRACE_PERIOD_MS);
+  session.expireTimer.unref?.();
 }
 
 async function sessionForResume(requested) {
