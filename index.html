@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#091014" />
+    <meta name="description" content="Wasteland Commons — a cooperative, inspectable post-collapse world." />
+    <title>Wasteland Commons</title>
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="world" aria-label="Wasteland Commons game world"></canvas>
+      <aside class="hud" aria-label="Game controls">
+        <div class="brand-row">
+          <div>
+            <p class="eyebrow">WASTELAND COMMONS</p>
+            <h1>Saltglass Basin</h1>
+          </div>
+          <span id="connection" class="status-pill">OFFLINE</span>
+        </div>
+        <p id="objective" class="objective">Find the old relay station and bring the commons back online.</p>
+        <div class="hud-grid">
+          <span><small>PLAYERS</small><b id="player-count">1</b></span>
+          <span><small>MODE</small><b id="mode-readout">BEAUTY</b></span>
+          <span><small>WORLD</small><b id="world-readout">L0-H20-R16</b></span>
+          <span><small>CHECK</small><b id="validation-readout">READY</b></span>
+        </div>
+        <div class="action-row">
+          <button id="inspection-toggle" class="button primary" type="button">Inspection mode</button>
+          <button id="connect-button" class="button" type="button">Join world</button>
+        </div>
+        <div class="survival-grid" aria-label="Community status">
+          <span><small>WATER</small><b id="water-readout">72%</b></span>
+          <span><small>FOOD</small><b id="food-readout">64%</b></span>
+          <span><small>MORALE</small><b id="morale-readout">58%</b></span>
+          <span><small>MECH</small><b id="mech-readout">SALVAGE ARM</b></span>
+        </div>
+        <div class="command-row" aria-label="World actions">
+          <button id="action-button" class="button" type="button">Interact</button>
+          <button id="build-button" class="button" type="button">Build</button>
+          <button id="mech-button" class="button" type="button">Cycle mech</button>
+          <button id="attack-button" class="button danger" type="button">Engage</button>
+        </div>
+        <p id="event-readout" class="event-readout" role="status">The commons are waiting for its first survivor.</p>
+        <div id="selected-card" class="selected-card" hidden>
+          <div class="selected-heading"><span>SELECTED RECORD</span><button id="clear-selection" type="button">×</button></div>
+          <h2 id="selected-title">Nothing selected</h2>
+          <p id="selected-description">Tap or click an object to inspect its spatial record.</p>
+          <div class="selected-meta"><span><small>ID</small><b id="selected-id">—</b></span><span><small>GRID</small><b id="selected-grid">—</b></span><span><small>MATERIAL</small><b id="selected-material">—</b></span></div>
+        </div>
+        <details class="help-panel">
+          <summary>Controls</summary>
+          <p><b>Desktop:</b> WASD to move · click an object to select it · I toggles inspection.</p>
+          <p><b>Phone:</b> hold the movement pad · tap an object to select it · use the button above for inspection.</p>
+        </details>
+      </aside>
+      <div id="touch-pad" class="touch-pad" aria-label="Touch movement pad"><span></span></div>
+      <button id="touch-inspection" class="touch-inspection button" type="button">Inspect</button>
+      <div id="toast" class="toast" role="status"></div>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

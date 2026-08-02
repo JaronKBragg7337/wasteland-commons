@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "0.1.0",
+  "purpose": "Semantic material resolver seed. Generated imagery can replace procedural fallbacks without changing object identity.",
+  "materials": {
+    "saltGround": { "family": "ground", "file": "/assets/materials/salt-ground.png", "source": "ai-generated", "prompt": "sun-baked salt and dust, cracked pale earth, seamless physically plausible surface" },
+    "weatheredConcrete": { "family": "concrete", "file": "/assets/materials/weathered-concrete.png", "source": "ai-generated", "prompt": "weathered poured concrete, dust, hairline cracks, subtle aggregate, seamless PBR source" },
+    "rustedSteel": { "family": "metal", "file": "/assets/materials/rusted-steel.png", "source": "ai-generated", "prompt": "oxidized industrial steel with layered rust, chipped paint, seamless PBR source" },
+    "robotShell": { "family": "painted-metal", "file": "/assets/materials/robot-shell.png", "source": "ai-generated", "prompt": "worn robot armor plating, faded utility paint, exposed metal edges, dust, seamless PBR source" },
+    "undeadBone": { "family": "bone", "file": "/assets/materials/undead-bone.png", "source": "ai-generated", "prompt": "aged bleached bone and dried organic residue, non-gory, seamless PBR source" },
+    "survivorCloth": { "family": "fabric", "file": "/assets/materials/survivor-cloth.png", "source": "ai-generated", "prompt": "patched utility cloth and canvas, sun-faded, dusty, rugged, seamless PBR source" },
+    "mechPlate": { "family": "industrial-metal", "file": "/assets/materials/mech-plate.png", "source": "ai-generated", "prompt": "heavy modular mech plating, paint wear, weld seams, dust and soot, seamless PBR source" },
+    "glass": { "family": "glass", "file": "/assets/materials/glass.png", "source": "ai-generated", "prompt": "dusty scratched safety glass with subtle blue-gray reflection, seamless material source" }
+  }
+}

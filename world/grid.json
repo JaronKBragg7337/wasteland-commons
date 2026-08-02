@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "0.1.0",
+  "units": "meters",
+  "upAxis": "Y",
+  "northAxis": "-Z",
+  "eastAxis": "+X",
+  "cellSize": 4,
+  "levelHeight": 3,
+  "origin": { "x": -80, "y": 0, "z": -64 },
+  "levelPrefix": "L",
+  "columnPrefix": "H",
+  "rowPrefix": "R",
+  "columnAxis": "worldX",
+  "rowAxis": "worldZ",
+  "sceneBounds": {
+    "min": { "x": -80, "y": 0, "z": -64 },
+    "max": { "x": 80, "y": 36, "z": 64 }
+  }
+}
+
