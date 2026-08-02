@@ -22,6 +22,7 @@
 - The authority regression suite verified that player input drives the boarded vehicle only for its driver.
 - Reconnect behavior returned to `CONNECTED` after the relay was restarted.
 - The material audit found all eight semantic materials and their generated images.
+- The reproducible gate is `npm run verify:public`; its current run is intentionally failing with `sharedSnapshot: false` until the dedicated shared backend is connected.
 
 ## Persistence boundary
 
