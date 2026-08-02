@@ -24,5 +24,5 @@ jobs:
       - run: npm run build
       - run: npm ci --prefix mobile/capacitor
       - run: npm run build:web --prefix mobile/capacitor
-      - run: npm run sync --prefix mobile/capacitor
+      - run: npm run copy --prefix mobile/capacitor
       - run: npm run test:native
