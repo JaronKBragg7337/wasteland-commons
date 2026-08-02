@@ -105,6 +105,24 @@ test('player construction is range-gated while trusted world commands remain val
   assert.equal(world.snapshot().constructions.some((construction) => construction.id === 'near-wall'), true);
 });
 
+test('temporary disconnect and resume preserve the anonymous player identity', () => {
+  const world = createWorld();
+  send(world, { type: 'player.join', playerId: 'resume-player', name: 'Rook', position: { x: 0, y: 0.9, z: 0 } });
+  world.step();
+  send(world, { type: 'player.move', playerId: 'resume-player', direction: { x: 1, z: 0 } });
+  world.step(4);
+  const before = world.snapshot().players.find((player) => player.id === 'resume-player');
+  send(world, { type: 'player.disconnect', commandId: 'disconnect-resume-player', playerId: 'resume-player' });
+  world.step();
+  assert.equal(world.snapshot().players.find((player) => player.id === 'resume-player').status, 'offline');
+  send(world, { type: 'player.resume', commandId: 'resume-resume-player', playerId: 'resume-player', name: 'Rook' });
+  world.step();
+  const after = world.snapshot().players.find((player) => player.id === 'resume-player');
+  assert.equal(after.id, before.id);
+  assert.deepEqual(after.position, before.position);
+  assert.equal(after.status, 'active');
+});
+
 test('NPC production uses a deliberate settlement cadence instead of draining each second', () => {
   const world = createWorld();
   send(world, { type: 'npc.spawn', npcId: 'grower-1', role: 'grower' });

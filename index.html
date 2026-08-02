@@ -40,6 +40,11 @@
           <span><small>MORALE</small><b id="morale-readout">58%</b></span>
           <span><small>MECH</small><b id="mech-readout">SALVAGE ARM</b></span>
         </div>
+        <div class="community-strip" aria-label="Community systems">
+          <span><small>POWER</small><b id="power-readout">65</b></span>
+          <span><small>NPCS</small><b id="npc-readout">6 ACTIVE</b></span>
+          <span><small>REVISION</small><b id="revision-readout">LOCAL</b></span>
+        </div>
         <div class="command-row" aria-label="World actions">
           <button id="action-button" class="button" type="button">Interact</button>
           <button id="build-button" class="button" type="button">Build</button>
@@ -51,7 +56,7 @@
           <div class="selected-heading"><span>SELECTED RECORD</span><button id="clear-selection" type="button">×</button></div>
           <h2 id="selected-title">Nothing selected</h2>
           <p id="selected-description">Tap or click an object to inspect its spatial record.</p>
-          <div class="selected-meta"><span><small>ID</small><b id="selected-id">—</b></span><span><small>GRID</small><b id="selected-grid">—</b></span><span><small>SECTOR</small><b id="selected-sector">—</b></span><span><small>MATERIAL</small><b id="selected-material">—</b></span></div>
+          <div class="selected-meta"><span><small>ID</small><b id="selected-id">—</b></span><span><small>GRID</small><b id="selected-grid">—</b></span><span><small>SECTOR</small><b id="selected-sector">—</b></span><span><small>MATERIAL</small><b id="selected-material">—</b></span><span><small>STATUS</small><b id="selected-status">—</b></span><span><small>HEALTH</small><b id="selected-health">—</b></span></div>
         </div>
         <details class="help-panel">
           <summary>Controls</summary>
@@ -60,6 +65,7 @@
         </details>
       </aside>
       <div id="touch-pad" class="touch-pad" aria-label="Touch movement pad"><span></span></div>
+      <button id="touch-sprint" class="touch-sprint button" type="button" aria-pressed="false">Sprint</button>
       <button id="touch-inspection" class="touch-inspection button" type="button">Inspect</button>
       <div id="toast" class="toast" role="status"></div>
     </div>

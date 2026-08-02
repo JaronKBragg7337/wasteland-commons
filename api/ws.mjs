@@ -10,12 +10,15 @@ import { createSharedRoomCoordinator } from '../server/shared-room-coordinator.m
 const persistence = createSupabaseStore({ worldId: 'saltglass-basin' });
 let world = createWorld({ worldId: 'saltglass-basin', worldSeed: 'saltglass-commons-001', rules: { playerSpeed: 7, sprintSpeed: 10 } });
 const connections = new Map();
+const resumeSessions = new Map();
+const PLAYER_DISCONNECT_DELAY_MS = 1_500;
+const PLAYER_GRACE_PERIOD_MS = 30_000;
 let pendingPersistenceEvents = [];
 let lastQueuedPersistenceRevision = 0;
 let persistenceTail = Promise.resolve();
 const palette = ['#7be6d0', '#ffbd69', '#c99cff', '#ff8f83'];
 const DURABLE_COMMAND_TYPES = new Set([
-  'player.join', 'player.leave', 'player.attack', 'player.interact',
+  'player.join', 'player.resume', 'player.disconnect', 'player.leave', 'player.attack', 'player.interact',
   'player.enterVehicle', 'player.exitVehicle', 'npc.spawn', 'npc.assign',
   'robot.spawn', 'undead.spawn', 'vehicle.spawn', 'vehicle.drive',
   'construction.place', 'mech.create', 'mech.installModule', 'mech.activate',
@@ -161,6 +164,74 @@ function broadcastSnapshot(current = snapshot()) {
 }
 function commandIdFor(message, prefix) { return String(message.commandId ?? `${prefix}-${randomUUID()}`); }
 
+function enqueueFromSocket(socket, command) {
+  const result = sharedCommand(command);
+  if (command?.commandId) {
+    send(socket, {
+      type: 'command.ack',
+      commandId: command.commandId,
+      state: result.accepted ? 'queued' : 'rejected',
+      ...(result.tick !== undefined ? { tick: result.tick } : {}),
+      ...(result.sequence !== undefined ? { sequence: result.sequence } : {}),
+      ...(result.reason ? { reason: result.reason } : {}),
+    });
+  }
+  return result;
+}
+
+function connectionRequest(request) {
+  let url;
+  try {
+    url = new URL(request?.url ?? '/', 'http://wasteland-commons.local');
+  } catch {
+    url = new URL('/', 'http://wasteland-commons.local');
+  }
+  const playerId = String(url.searchParams.get('playerId') ?? '').trim().slice(0, 64);
+  const resumeToken = String(url.searchParams.get('resumeToken') ?? '').trim().slice(0, 128);
+  return { playerId, resumeToken };
+}
+
+function clearResumeTimers(session) {
+  if (!session) return;
+  if (session.disconnectTimer) clearTimeout(session.disconnectTimer);
+  if (session.expireTimer) clearTimeout(session.expireTimer);
+  session.disconnectTimer = null;
+  session.expireTimer = null;
+}
+
+function scheduleResumeExpiry(playerId, resumeToken) {
+  const session = resumeSessions.get(playerId);
+  if (!session || session.resumeToken !== resumeToken) return;
+  clearResumeTimers(session);
+  session.disconnectTimer = setTimeout(() => {
+    const current = resumeSessions.get(playerId);
+    if (!current || current.resumeToken !== resumeToken || current.socket) return;
+    sharedCommand({
+      type: 'player.disconnect',
+      commandId: `disconnect-${playerId}-${snapshot().revision}`,
+      playerId,
+    });
+  }, PLAYER_DISCONNECT_DELAY_MS);
+  session.expireTimer = setTimeout(() => {
+    const current = resumeSessions.get(playerId);
+    if (!current || current.resumeToken !== resumeToken || current.socket) return;
+    resumeSessions.delete(playerId);
+    sharedCommand({
+      type: 'player.leave',
+      commandId: `leave-${playerId}-${snapshot().revision}`,
+      playerId,
+    });
+  }, PLAYER_GRACE_PERIOD_MS);
+}
+
+function sessionForResume(requested) {
+  if (!requested.playerId || !requested.resumeToken) return null;
+  const session = resumeSessions.get(requested.playerId);
+  if (!session || session.resumeToken !== requested.resumeToken) return null;
+  if (!world.state.players.has(requested.playerId)) return null;
+  return session;
+}
+
 function queuePersistence(currentSnapshot) {
   if (!persistence.enabled || (sharedRoom.enabled && !sharedRoom.isLeader) || currentSnapshot.revision <= lastQueuedPersistenceRevision) return;
   const snapshotToPersist = structuredClone(currentSnapshot);
@@ -192,36 +263,63 @@ const simulationTimer = setInterval(() => {
 }, 1000 / 20);
 simulationTimer.unref?.();
 
-wss.on('connection', (socket) => {
-  const playerId = `SURVIVOR-${randomUUID().slice(0, 8).toUpperCase()}`;
+wss.on('connection', (socket, request) => {
+  const requested = connectionRequest(request);
+  const resumedSession = sessionForResume(requested);
+  const resumed = Boolean(resumedSession);
+  const playerId = resumed ? requested.playerId : `SURVIVOR-${randomUUID().slice(0, 8).toUpperCase()}`;
   const spawnIndex = connections.size;
   const position = { x: spawnIndex * 3 - 1.5, y: 0.9, z: 28 };
-  connections.set(playerId, { socket, playerId });
-  const accepted = sharedCommand({ type: 'player.join', commandId: `join-${playerId}`, playerId, name: `Survivor ${spawnIndex + 1}`, position });
+  const resumeToken = resumed ? resumedSession.resumeToken : randomUUID();
+  const previousConnection = connections.get(playerId);
+  if (previousConnection && previousConnection.socket !== socket) {
+    try { previousConnection.socket.close(4001, 'session resumed on another connection'); } catch { /* best effort */ }
+  }
+  const connection = { socket, playerId, resumeToken };
+  connections.set(playerId, connection);
+  const session = resumedSession ?? { playerId, resumeToken, socket: null, disconnectTimer: null, expireTimer: null };
+  clearResumeTimers(session);
+  session.socket = socket;
+  resumeSessions.set(playerId, session);
+  const accepted = sharedCommand(resumed
+    ? { type: 'player.resume', commandId: `resume-${playerId}-${snapshot().revision}`, playerId, name: `Survivor ${spawnIndex + 1}` }
+    : { type: 'player.join', commandId: `join-${playerId}`, playerId, name: `Survivor ${spawnIndex + 1}`, position });
   if (!accepted.accepted) {
     send(socket, { type: 'error', reason: accepted.reason });
     socket.close(1013, 'world capacity unavailable');
     connections.delete(playerId);
+    session.socket = null;
+    scheduleResumeExpiry(playerId, resumeToken);
     return;
   }
-  send(socket, { type: 'welcome', playerId, players: clientPlayers(snapshot()), snapshot: snapshot(), worldSeed: 'saltglass-commons-001' });
+  send(socket, {
+    type: 'welcome', playerId, resumeToken, resumed,
+    players: clientPlayers(snapshot()), snapshot: snapshot(), worldSeed: 'saltglass-commons-001'
+  });
   socket.on('message', (raw) => {
     let message;
     try { message = JSON.parse(raw.toString()); } catch { return; }
     if (message.type === 'input') sharedCommand({ type: 'player.move', commandId: commandIdFor(message, 'move'), playerId, direction: message.direction ?? { x: 0, z: 0 }, sprint: Boolean(message.sprint) });
-    else if (message.type === 'command' && message.command === 'build') sharedCommand({ type: 'construction.place', commandId: commandIdFor(message, 'build'), playerId, builderId: playerId, blueprint: 'foundation', position: message.record?.position ?? position, constructionId: message.record?.id });
-    else if (message.type === 'command' && message.command === 'interact') sharedCommand({ type: 'player.interact', commandId: commandIdFor(message, 'interact'), playerId, recordId: message.recordId });
-    else if (message.type === 'command' && message.command === 'attack') sharedCommand({ type: 'player.attack', commandId: commandIdFor(message, 'attack'), playerId, targetId: message.targetId, weapon: message.weapon ?? 'tool', range: message.range ?? 8 });
-    else if (message.type === 'command' && message.command === 'enterVehicle') sharedCommand({ type: 'player.enterVehicle', commandId: commandIdFor(message, 'enter'), playerId, vehicleId: message.vehicleId });
-    else if (message.type === 'command' && message.command === 'exitVehicle') sharedCommand({ type: 'player.exitVehicle', commandId: commandIdFor(message, 'exit'), playerId });
-    else if (message.type === 'command' && message.command === 'boss.start') sharedCommand({ type: 'boss.start', commandId: commandIdFor(message, 'boss'), playerId, bossId: message.bossId, bossKey: message.bossKey, position: message.position });
-    else if (message.type === 'command' && message.command === 'mech.pilot') sharedCommand({ type: 'mech.pilot', commandId: commandIdFor(message, 'mech-pilot'), playerId, mechId: message.mechId });
-    else if (message.type === 'command' && message.command === 'mech.unpilot') sharedCommand({ type: 'mech.unpilot', commandId: commandIdFor(message, 'mech-unpilot'), playerId, mechId: message.mechId });
-    else if (message.type === 'command' && message.command === 'mech.installModule') sharedCommand({ type: 'mech.installModule', commandId: commandIdFor(message, 'mech-install'), playerId, mechId: message.mechId, slot: message.slot, moduleKey: message.moduleKey });
-    else if (message.type === 'command' && message.command === 'mech.activate') sharedCommand({ type: 'mech.activate', commandId: commandIdFor(message, 'mech-activate'), playerId, mechId: message.mechId, action: message.action, targetId: message.targetId });
+    else if (message.type === 'command' && message.command === 'build') enqueueFromSocket(socket, { type: 'construction.place', commandId: commandIdFor(message, 'build'), playerId, builderId: playerId, blueprint: 'foundation', position: message.record?.position ?? position, constructionId: message.record?.id });
+    else if (message.type === 'command' && message.command === 'interact') enqueueFromSocket(socket, { type: 'player.interact', commandId: commandIdFor(message, 'interact'), playerId, recordId: message.recordId });
+    else if (message.type === 'command' && message.command === 'attack') enqueueFromSocket(socket, { type: 'player.attack', commandId: commandIdFor(message, 'attack'), playerId, targetId: message.targetId, weapon: message.weapon ?? 'tool', range: message.range ?? 8 });
+    else if (message.type === 'command' && message.command === 'enterVehicle') enqueueFromSocket(socket, { type: 'player.enterVehicle', commandId: commandIdFor(message, 'enter'), playerId, vehicleId: message.vehicleId });
+    else if (message.type === 'command' && message.command === 'exitVehicle') enqueueFromSocket(socket, { type: 'player.exitVehicle', commandId: commandIdFor(message, 'exit'), playerId });
+    else if (message.type === 'command' && message.command === 'boss.start') enqueueFromSocket(socket, { type: 'boss.start', commandId: commandIdFor(message, 'boss'), playerId, bossId: message.bossId, bossKey: message.bossKey, position: message.position });
+    else if (message.type === 'command' && message.command === 'mech.pilot') enqueueFromSocket(socket, { type: 'mech.pilot', commandId: commandIdFor(message, 'mech-pilot'), playerId, mechId: message.mechId });
+    else if (message.type === 'command' && message.command === 'mech.unpilot') enqueueFromSocket(socket, { type: 'mech.unpilot', commandId: commandIdFor(message, 'mech-unpilot'), playerId, mechId: message.mechId });
+    else if (message.type === 'command' && message.command === 'mech.installModule') enqueueFromSocket(socket, { type: 'mech.installModule', commandId: commandIdFor(message, 'mech-install'), playerId, mechId: message.mechId, slot: message.slot, moduleKey: message.moduleKey });
+    else if (message.type === 'command' && message.command === 'mech.activate') enqueueFromSocket(socket, { type: 'mech.activate', commandId: commandIdFor(message, 'mech-activate'), playerId, mechId: message.mechId, action: message.action, targetId: message.targetId });
     else if (message.type === 'ping') send(socket, { type: 'pong', at: Date.now(), tick: snapshot().tick });
   });
-  socket.on('close', () => { connections.delete(playerId); sharedCommand({ type: 'player.leave', commandId: `leave-${playerId}-${snapshot().tick}`, playerId }); });
+  socket.on('close', () => {
+    if (connections.get(playerId)?.socket !== socket) return;
+    connections.delete(playerId);
+    const current = resumeSessions.get(playerId);
+    if (!current || current.resumeToken !== resumeToken) return;
+    current.socket = null;
+    scheduleResumeExpiry(playerId, resumeToken);
+  });
 });
 
 export default server;
