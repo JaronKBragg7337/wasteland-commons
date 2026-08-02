@@ -2,7 +2,7 @@
 
 Wasteland Commons is a browser-first cooperative post-collapse game built for a parent and child to play together across desktop, iPhone, and Android.
 
-**Play the public build:** [wasteland-commons.vercel.app](https://wasteland-commons.vercel.app/) — it works without installation or a login. Open it on two devices or browser tabs to test the shared world.
+**Open the public build:** [wasteland-commons.vercel.app](https://wasteland-commons.vercel.app/) — it works without installation or a login. The public client is viewable now; shared public multiplayer remains gated on a dedicated shared relay.
 
 The world is built around a spatial contract: every meaningful object has a stable identity, a deterministic grid address, semantic material parts, collision bounds, and a validation record from the moment it enters the world. Beauty mode is the player-facing world. Inspection mode exposes the contract so a human or AI can locate, understand, and repair exact objects.
 
@@ -24,7 +24,7 @@ Open the Vite URL. The relay runs on port `8787`. Desktop uses WASD; phones use 
 
 ## Public release
 
-The current public client is [wasteland-commons.vercel.app](https://wasteland-commons.vercel.app/). Its read-only deployment check is [the health endpoint](https://wasteland-commons.vercel.app/api/health), and the browser connects to `/api/ws` over WSS. The public release is CC0-licensed and has no login requirement. The relay currently uses in-memory state; a dedicated Supabase project is an explicit next provisioning step, not an existing-project reuse.
+The current public client is [wasteland-commons.vercel.app](https://wasteland-commons.vercel.app/). Its read-only deployment check is [the health endpoint](https://wasteland-commons.vercel.app/api/health), and the browser connects to `/api/ws` over WSS. The public release is CC0-licensed and has no login requirement. The Vercel function currently uses instance-local in-memory state, so it is not yet the authoritative shared multiplayer deployment; a dedicated shared relay and Supabase project are explicit next provisioning steps, not existing-project reuse.
 
 ## Release boundary
 

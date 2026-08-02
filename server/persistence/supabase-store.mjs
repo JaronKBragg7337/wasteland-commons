@@ -1,5 +1,7 @@
 const SNAPSHOT_TABLE = 'wasteland_rooms';
 const EVENT_TABLE = 'wasteland_events';
+const CLAIM_LEASE_RPC = 'try_claim_wasteland_lease';
+const RELEASE_LEASE_RPC = 'release_wasteland_lease';
 
 function configured() {
   return Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
@@ -29,6 +31,28 @@ async function get(table, search = '') {
   if (response.status === 404) return null;
   if (!response.ok) throw new Error(`Supabase ${table} read failed (${response.status})`);
   return response.json();
+}
+
+async function rpc(functionName, body) {
+  const response = await fetch(`${process.env.SUPABASE_URL.replace(/\/$/, '')}/rest/v1/rpc/${functionName}`, {
+    method: 'POST',
+    headers: headers('return=representation'),
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) throw new Error(`Supabase RPC ${functionName} failed (${response.status})`);
+  return response.json();
+}
+
+function booleanResult(value) {
+  if (value === true || value === 'true') return true;
+  if (Array.isArray(value)) return booleanResult(value[0]);
+  if (value && typeof value === 'object') {
+    const named = value.claimed ?? value.released ?? value.result;
+    if (named !== undefined) return booleanResult(named);
+    const values = Object.values(value);
+    if (values.length === 1) return booleanResult(values[0]);
+  }
+  return false;
 }
 
 export function createSupabaseStore({ worldId } = {}) {
@@ -66,6 +90,23 @@ export function createSupabaseStore({ worldId } = {}) {
         }, '?on_conflict=world_id,event_id', 'resolution=ignore-duplicates,return=minimal');
       }
       return { persisted: true, revision: snapshot.revision, events: uniqueEvents.size };
+    },
+    async claimLease(ownerId, leaseSeconds = 9) {
+      if (!configured()) return false;
+      const result = await rpc(CLAIM_LEASE_RPC, {
+        p_world_id: id,
+        p_owner_id: String(ownerId),
+        p_lease_seconds: Math.max(3, Math.min(30, Number(leaseSeconds) || 9)),
+      });
+      return booleanResult(result);
+    },
+    async releaseLease(ownerId) {
+      if (!configured()) return false;
+      const result = await rpc(RELEASE_LEASE_RPC, {
+        p_world_id: id,
+        p_owner_id: String(ownerId),
+      });
+      return booleanResult(result);
     },
   };
 }

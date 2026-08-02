@@ -10,11 +10,12 @@
 ## What was verified
 
 - Production Vite build completed through Vercel.
-- Two independent browser clients connected to the same public relay.
-- Both clients rendered the same deterministic world and reported `CONNECTED`, `PLAYERS 2`, `BEAUTY`, and `VALIDATED`.
+- The public endpoint serves the client and reports its current release gate at `/api/health`.
+- The local authoritative relay passed the two-client protocol test, including shared player state and construction replication.
+- A fresh production two-client WebSocket audit completed both handshakes, but the clients received isolated player lists because Vercel function instances do not share the in-memory world. Public shared multiplayer is therefore not marked passed.
 - Local desktop, 390×844 iPhone-sized, and 412×915 Android-sized layouts were inspected.
 - Inspection mode exposed the grid and stable asset labels.
-- A construction command replicated between the two clients.
+- A construction command replicated between two clients on the local authoritative relay.
 - The authority protocol test piloted the seeded modular mech at its exact grid position, verified module loadout, and confirmed player/mech attachment.
 - The authority regression suite verified that player input drives the boarded vehicle only for its driver.
 - Reconnect behavior returned to `CONNECTED` after the relay was restarted.
@@ -22,7 +23,7 @@
 
 ## Persistence boundary
 
-The public relay is currently configured for local-memory state. The repository includes a server-only Supabase adapter and an RLS-protected migration, but no existing Supabase project is reused. Provisioning the dedicated project requires explicit organization and cost confirmation.
+The public Vercel function is currently configured for instance-local memory. The repository includes a server-only Supabase persistence adapter, idempotent event migration, and regression tests, but no existing Supabase project is reused. A dedicated shared relay/state backend must be provisioned and verified before the public multiplayer gate can pass. Provisioning the dedicated project requires explicit organization and cost confirmation.
 
 ## Store boundary
 

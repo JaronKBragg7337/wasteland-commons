@@ -76,3 +76,32 @@ test('configured store surfaces load failures instead of seeding a replacement w
     restoreEnvironment(previous);
   }
 });
+
+test('configured store claims and releases the dedicated authority lease through RPC', async () => {
+  const previous = { url: process.env.SUPABASE_URL, key: process.env.SUPABASE_SERVICE_ROLE_KEY };
+  process.env.SUPABASE_URL = 'https://example.supabase.co';
+  process.env.SUPABASE_SERVICE_ROLE_KEY = 'server-only-test-key';
+  const requests = [];
+  globalThis.fetch = async (url, options = {}) => {
+    requests.push({ url: String(url), options });
+    return {
+      ok: true,
+      status: 200,
+      async json() { return String(url).includes('try_claim') ? true : false; },
+    };
+  };
+  try {
+    const store = createSupabaseStore({ worldId: 'test-world' });
+    assert.equal(await store.claimLease('relay-a', 9), true);
+    assert.equal(await store.releaseLease('relay-a'), false);
+    assert.match(requests[0].url, /rpc\/try_claim_wasteland_lease$/);
+    assert.deepEqual(JSON.parse(requests[0].options.body), {
+      p_world_id: 'test-world',
+      p_owner_id: 'relay-a',
+      p_lease_seconds: 9,
+    });
+    assert.match(requests[1].url, /rpc\/release_wasteland_lease$/);
+  } finally {
+    restoreEnvironment(previous);
+  }
+});

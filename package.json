@@ -2,6 +2,9 @@
   "name": "wasteland-commons",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=22"
+  },
   "type": "module",
   "description": "A cross-platform cooperative wasteland game with inspectable spatial memory.",
   "scripts": {
@@ -11,11 +14,12 @@
     "preview": "vite preview",
     "test:world": "node server/validate-world.mjs",
     "test:authoritative": "node --test server/authoritative/world-state.test.mjs server/authoritative/restore.test.mjs server/authoritative/interactions.test.mjs server/scene-seed.test.mjs",
-    "test:persistence": "node --test server/persistence/supabase-store.test.mjs",
+    "test:persistence": "node --test server/persistence/supabase-store.test.mjs server/shared-room-coordinator.test.mjs",
     "audit:materials": "node tools/material-audit.mjs",
     "test:native": "node tools/validate-native.mjs"
   },
   "dependencies": {
+    "@supabase/supabase-js": "2.111.0",
     "three": "^0.179.1",
     "ws": "^8.18.3"
   },

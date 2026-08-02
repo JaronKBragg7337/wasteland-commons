@@ -8,6 +8,8 @@ export default function healthHandler(_request, response) {
     status: 'ready',
     release,
     websocketPath: '/api/ws',
+    multiplayer: 'instance-local-until-shared-relay-is-configured',
     persistence: 'local-memory-until-dedicated-supabase-is-configured',
+    publicReleaseGate: 'shared-multiplayer-pending',
   }));
 }
