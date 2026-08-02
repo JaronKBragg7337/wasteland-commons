@@ -28,7 +28,7 @@ The current public client is [wasteland-commons.vercel.app](https://wasteland-co
 
 ## Release boundary
 
-The browser client, deterministic world contracts, material provenance, local authoritative relay, optional Supabase persistence adapter, and Capacitor packaging contract live in this repository. App Store Connect and Google Play signing remain credential-gated release steps; no signing keys or service credentials belong in this project.
+The browser client, deterministic world contracts, material provenance, local authoritative relay, optional Supabase persistence adapter, and generated Capacitor Android/iOS projects live in this repository. App Store Connect and Google Play signing remain credential-gated release steps; no signing keys or service credentials belong in this project.
 
 ## Reference boundary
 

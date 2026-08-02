@@ -1,9 +1,9 @@
-# Capacitor packaging scaffold
+# Capacitor packaging and release boundary
 
-Status: **scaffold only**. No Capacitor packages were installed, no native
-projects were generated, and no iOS/Android artifact was signed or submitted.
-This directory is intentionally self-contained so the current Vite project
-and its root files remain unchanged.
+Status: **native source generated and tracked**. The Android and iOS projects,
+pinned dependency lockfile, generated icon/splash resources, and release
+configuration are present. Signing, physical-device validation, and store
+submission still require the platform toolchains and account credentials.
 
 ## Layout and `webDir`
 
@@ -11,11 +11,13 @@ When activated, `mobile/capacitor/` is the Capacitor project root:
 
 ```text
 mobile/capacitor/
-  capacitor.config.ts
-  android/                 # generated later; not present in this scaffold
-  ios/                     # generated later; not present in this scaffold
+  capacitor.config.ts      # source configuration; no live-reload URL
+  package.json             # pinned Capacitor 8.5.0 toolchain
+  package-lock.json
+  resources/               # CC0 product icon and splash source
+  android/                 # generated Android Studio/Gradle project
+  ios/                     # generated Xcode/Swift Package project
   lifecycle-bridge.ts
-  ../../mobile/assets/wasteland-commons-icon.png
 ../../dist/                 # repository Vite release output
 ```
 
@@ -26,69 +28,58 @@ download the game UI at launch.
 
 ## Exact build/copy/sync sequence
 
-Run this sequence from PowerShell after Capacitor dependencies and native
-platforms have been intentionally enabled. The commands are documented, not
-run by this scaffold:
+Run this sequence from PowerShell after a clean checkout:
 
 ```powershell
 $repo = 'G:\My Drive\Codex Active\projects\wasteland-commons'
 Set-Location $repo
 
-# 1. Produce the only web bundle allowed into a release wrapper.
-bun run build
-if (!(Test-Path .\dist\index.html)) { throw 'Vite build did not produce dist/index.html' }
-
-# 2. Record the build identity before copying it into native projects.
-Get-FileHash .\dist\index.html -Algorithm SHA256
-
-# 3. Copy web assets/config only. Use this for ordinary web-only changes.
+# 1. Install the pinned native toolchain.
 Push-Location .\mobile\capacitor
-npx cap copy
+npm ci
 Pop-Location
 
-# 4. Sync after adding/updating Capacitor or native plugins. This copies the
-#    web bundle and updates native dependencies; it is not a substitute for
-#    the release checks below.
+# 2. Produce the only web bundle allowed into a release wrapper. This injects
+#    the explicit public WSS relay so a packaged localhost WebView does not
+#    attempt to connect to wss://localhost.
+npm run build:web --prefix .\mobile\capacitor
+if (!(Test-Path .\dist\index.html)) { throw 'Vite build did not produce dist/index.html' }
+
+# 3. Record the build identity before copying it into native projects.
+Get-FileHash .\dist\index.html -Algorithm SHA256
+
+# 4. Copy web assets/config and update native dependencies.
 Push-Location .\mobile\capacitor
-npx cap sync
+npm run sync
 Pop-Location
 ```
 
-Use `copy` for a web asset refresh. Use `sync` after native dependency or
-plugin changes. Never run `copy` or `sync` against a development `dist/` and
-then call that result a release candidate.
+Use `copy` for a web asset refresh when native dependencies are unchanged. Use
+`sync` after native dependency or plugin changes. Never run either command
+against an unreviewed development `dist/` and then call that result a release
+candidate.
 
-## First activation plan (intentionally not executed)
+## Generated platform state
 
-1. Choose and record the final reverse-DNS app ID. The value currently in the
-   scaffold is provisional until the product owner approves it.
-2. Pin one Capacitor major/minor version for `@capacitor/cli`,
-   `@capacitor/core`, `@capacitor/ios`, and `@capacitor/android` in the
-   mobile packaging workspace. Install nothing as part of this scaffold.
-3. From `mobile/capacitor`, generate the platform projects once:
-
-   ```powershell
-   npx cap add android
-   npx cap add ios
-   ```
-
-   iOS generation/build requires macOS and Xcode. Android generation/build
-   requires the agreed Android SDK/Gradle toolchain. Those prerequisites are
-   not being represented as available here.
-4. Run the build/copy/sync sequence above, then open the native projects:
+1. The immutable app identity is currently `com.wastelandcommons.game` and
+   the display name is `Wasteland Commons`. Change both only as a deliberate
+   product/release decision before the first store submission.
+2. Capacitor `8.5.0` is pinned for CLI, core, iOS, and Android, with the
+   committed `mobile/capacitor/package-lock.json` as the install source.
+3. The platform projects were generated and synced from the current Vite
+   release output. The generated icon and splash resources come from
+   `resources/icon.png` and `resources/splash.png`.
+4. Open the native projects when platform toolchains are available:
 
    ```powershell
    npx cap open android
    npx cap open ios
    ```
 
-5. Keep generated native projects under this directory and commit them only
-   after reviewing identifiers, permissions, orientation, icons, splash,
-   privacy files, and the exact copied asset manifest.
-
-The current source emblem is `mobile/assets/wasteland-commons-icon.png`.
-Generate the required iOS and Android size/mask variants during this activation
-step; the source image alone is not a completed store icon set.
+5. The current Windows workstation can inspect and commit native source, but
+   iOS archive/signing requires macOS/Xcode and Android release builds require
+   an Android SDK/Gradle environment. Those are platform gates, not missing
+   game functionality.
 
 ## Production-origin rules
 
@@ -99,13 +90,12 @@ There are two different origins and they must never be confused:
 | Capacitor local origin (`capacitor://localhost` on iOS; `https://localhost` on Android with this config) | Loads packaged Vite assets | Always bundled; never replaced by a remote page |
 | Multiplayer service origin | Authoritative world, room, persistence, and realtime transport | Explicit HTTPS API origin plus WSS relay origin |
 
-The production web build must receive an explicit multiplayer origin, for
-example `https://play.example` and `wss://play.example`. It must not derive a
-production endpoint from `window.location.hostname`, use `localhost`, use a
-private LAN address, or fall back to port `8787`. The current browser relay is
-local development infrastructure; wiring the Vite client to an environment-
-selected production origin is a separate web-client change and is not made by
-this mobile-only task.
+The production mobile web build receives the explicit public relay
+`wss://wasteland-commons.vercel.app/api/ws` through
+`tools/build-mobile-web.mjs`. Set `VITE_RELAY_URL` to an approved WSS staging
+relay when producing a staging wrapper. The browser build remains host-relative
+when no Vite override is provided, while the packaged build never falls back to
+localhost or port 8787.
 
 Release invariants:
 
@@ -153,22 +143,22 @@ The game sink must:
 
 ```powershell
 Set-Location 'G:\My Drive\Codex Active\projects\wasteland-commons'
-bun run build
-bun run test:world
-bun tools/material-audit.mjs --strict
+npm run build
+npm run test:world
+npm run audit:materials -- --strict
 ```
 
 Then use the existing browser QA loop at desktop, iPhone-sized, and
 Android-sized viewports. This validates the web client only; it does not
 validate a native WebView.
 
-### Native debug pass after activation
+### Native debug pass
 
 ```powershell
 Set-Location 'G:\My Drive\Codex Active\projects\wasteland-commons'
-bun run build
+npm run build:web --prefix .\mobile\capacitor
 Push-Location .\mobile\capacitor
-npx cap copy
+npm run sync
 npx cap run android
 # On a macOS/Xcode runner, use: npx cap run ios
 Pop-Location
@@ -178,26 +168,28 @@ For a development live-reload pass only, use the Capacitor live-reload
 workflow against a LAN-accessible Vite server. Never commit its URL or carry
 it into `npx cap copy`, `npx cap sync`, or a release configuration.
 
-### Release-candidate pass (future, credential-gated)
+### Release-candidate pass (credential-gated)
 
 ```powershell
 Set-Location 'G:\My Drive\Codex Active\projects\wasteland-commons'
-bun run build
+npm run build:web --prefix .\mobile\capacitor
 Push-Location .\mobile\capacitor
-npx cap sync
+npm run sync
 npx cap build android
 # On a macOS/Xcode runner, archive/export the iOS scheme there.
 Pop-Location
 ```
 
-Before any store submission, add the native signing, device matrix,
+Before any store submission, complete the native signing, device matrix,
 offline/resume, accessibility, performance, privacy, version monotonicity,
-and artifact checks from `store-readiness-and-packaging-contract.md`. This
-scaffold does not claim any of those gates passed.
+and artifact checks from `mobile/store-readiness-and-packaging-contract.md`.
+The repository now contains generated source and validated static
+configuration; it does not claim that a signed artifact or store review has
+passed.
 
 ## Current boundary
 
-This is a concrete packaging contract and future native-project location. It
-does not install packages, change `package.json`, change root Vite/server
-files, generate `ios/` or `android/`, provision credentials, sign a binary,
-or establish Apple/Google store readiness.
+This directory is the concrete packaging implementation. It does not contain
+signing keys, provision remote credentials, sign a binary, or claim Apple/Google
+store approval. Those remaining gates are recorded explicitly in the store
+readiness contract so they cannot be mistaken for completed repository work.

@@ -26,4 +26,9 @@ The public relay is currently configured for local-memory state. The repository 
 
 ## Store boundary
 
-The browser build is cross-platform and mobile-viewable today. `mobile/capacitor/` contains the packaging contract and lifecycle bridge, while App Store Connect / Google Play signing and submission remain credential- and platform-host dependent steps. No signing keys or service credentials are stored here.
+The browser build is cross-platform and mobile-viewable today. `mobile/capacitor/`
+now contains generated Android/iOS projects, pinned Capacitor dependencies,
+generated product icon/splash assets, and an explicit WSS relay build path.
+App Store Connect / Google Play signing, physical-device checks, and submission
+remain credential- and platform-host dependent steps. No signing keys or
+service credentials are stored here.

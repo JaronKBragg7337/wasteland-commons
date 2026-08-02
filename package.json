@@ -11,7 +11,8 @@
     "preview": "vite preview",
     "test:world": "node server/validate-world.mjs",
     "test:authoritative": "node --test server/authoritative/world-state.test.mjs server/authoritative/restore.test.mjs server/authoritative/interactions.test.mjs server/scene-seed.test.mjs",
-    "audit:materials": "node tools/material-audit.mjs"
+    "audit:materials": "node tools/material-audit.mjs",
+    "test:native": "node tools/validate-native.mjs"
   },
   "dependencies": {
     "three": "^0.179.1",

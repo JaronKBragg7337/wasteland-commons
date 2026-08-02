@@ -6,3 +6,10 @@ dist/
 
 
 .vercel
+
+# Native build output; keep native project source and configuration tracked.
+**/android/.gradle/
+**/android/build/
+**/android/app/build/
+**/ios/DerivedData/
+**/ios/App/Pods/

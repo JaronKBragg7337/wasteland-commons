@@ -1,0 +1,21 @@
+{
+  "name": "@wasteland-commons/capacitor",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build:web": "node ../../tools/build-mobile-web.mjs",
+    "copy": "cap copy",
+    "sync": "cap sync",
+    "doctor": "cap doctor"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.5.0",
+    "@capacitor/core": "8.5.0",
+    "@capacitor/ios": "8.5.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.5.0",
+    "typescript": "7.0.2"
+  }
+}

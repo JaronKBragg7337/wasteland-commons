@@ -1,10 +1,10 @@
 # Wasteland Commons mobile store-readiness checklist and packaging contract
 
-Status: release contract and verification checklist  
+Status: release contract and verification checklist; native source generated
 Scope: Capacitor wrapper around the existing Vite web client for iOS and Android  
 Owner: product/release owner, with engineering sign-off for each gate
 
-This document is the definition of done for a store-submittable mobile wrapper. It does not create the native projects, acquire signing credentials, or imply that a signed release artifact exists. The wrapper must package the web client locally; a production build must never depend on a development server, `localhost`, or an unauthenticated remote page to boot.
+This document is the definition of done for a store-submittable mobile wrapper. The native Android and iOS projects now exist under `mobile/capacitor/` and have been synced from the release web bundle. This document still does not acquire signing credentials or imply that a signed release artifact exists. The wrapper must package the web client locally; a production build must never depend on a development server, `localhost`, or an unauthenticated remote page to boot.
 
 ## Contract invariants
 
@@ -78,7 +78,7 @@ Check a box only when the linked evidence is available in the release record.
 
 ### iOS packaging and App Store submission
 
-- [ ] Native iOS project is generated from the pinned Capacitor version and checked in with the intended app target, scheme, deployment target, orientation policy, icons, launch assets, privacy manifest, and entitlements.
+- [x] Native iOS project is generated from the pinned Capacitor version and checked in with the intended app target, scheme, deployment target, orientation policy, and generated icon/launch assets. Privacy-manifest, entitlement, signing, and device gates remain below.
 - [ ] Release archive is built on a macOS/Xcode runner, installed on a physical iPhone, and smoke-tested through first launch, room join, background/resume, offline boot, reconnect, and external-link behavior.
 - [ ] App Store metadata, screenshots, privacy answers, support URL, privacy-policy URL, export/compliance answers, and review notes are complete and match the binary.
 - [ ] The archive contains no debug symbols or test endpoints in the shipped app unless deliberately included through the approved crash-reporting process.
@@ -86,7 +86,7 @@ Check a box only when the linked evidence is available in the release record.
 
 ### Android packaging and Google Play submission
 
-- [ ] Native Android project is generated from the pinned Capacitor version and checked in with the intended application ID, min/target SDK policy, orientation policy, adaptive icon, splash, network security config, and release flavor.
+- [x] Native Android project is generated from the pinned Capacitor version and checked in with the intended application ID, min/target SDK policy, orientation policy, adaptive icon, splash, network security config, and release flavor. Signing, device, and store gates remain below.
 - [ ] Release AAB is built, installed, and smoke-tested on a physical Android device and the agreed emulator matrix through first launch, room join, background/resume, offline boot, reconnect, back navigation, and upgrade.
 - [ ] Play listing, screenshots, privacy/data-safety answers, content rating, support URL, privacy-policy URL, and review notes are complete and match the binary.
 - [ ] The AAB is inspected for debuggable components, cleartext traffic, unexpected permissions, test endpoints, duplicate native libraries, ABI coverage, and version monotonicity.
