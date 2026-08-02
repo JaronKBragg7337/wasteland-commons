@@ -12,8 +12,8 @@
 
 - Previous production source commit: `c84cd94` (`Stabilize construction support and settlement cadence`)
 - Previous production deployment: `dpl_6yBVNYiNx4C7CUZZLdWvMkEtQMye` — READY
-- Current production source: `2f7e712` (`feat: persist anonymous resume capabilities`), merged through public PRs [#1](https://github.com/JaronKBragg7337/wasteland-commons/pull/1), [#2](https://github.com/JaronKBragg7337/wasteland-commons/pull/2), [#3](https://github.com/JaronKBragg7337/wasteland-commons/pull/3), [#4](https://github.com/JaronKBragg7337/wasteland-commons/pull/4), [#6](https://github.com/JaronKBragg7337/wasteland-commons/pull/6), and [#8](https://github.com/JaronKBragg7337/wasteland-commons/pull/8), CI green
-- Current production deployment: `dpl_8zSF6aorfSaHZnE2SQTCDXbM6DVU` — READY, aliased to `https://wasteland-commons.vercel.app`
+- Current production source: `4324a84` (`test: verify relay resume identity`), merged through public PRs [#1](https://github.com/JaronKBragg7337/wasteland-commons/pull/1), [#2](https://github.com/JaronKBragg7337/wasteland-commons/pull/2), [#3](https://github.com/JaronKBragg7337/wasteland-commons/pull/3), [#4](https://github.com/JaronKBragg7337/wasteland-commons/pull/4), [#6](https://github.com/JaronKBragg7337/wasteland-commons/pull/6), [#8](https://github.com/JaronKBragg7337/wasteland-commons/pull/8), and [#10](https://github.com/JaronKBragg7337/wasteland-commons/pull/10), CI green
+- Current production deployment: `dpl_CAyRPaK5VLPvF9UoghaJ9JqBGSAi` — READY, aliased to `https://wasteland-commons.vercel.app`
 - Manifest hash: `2332c91ca27b9abe625edce1a289a1f2d6ec9cfdd9435b9ecefa3200b57dda64`
 - Browser verification rerun: desktop, 390×844 iPhone-sized, and 412×915 Android-sized viewports; construction remained `VALIDATED` after the authoritative round trip, the mobile HUD/inspection hint no longer overlaps the action controls, and the production relay now honors the two-minute resume grace contract.
 
